@@ -1,0 +1,23 @@
+# Kiro
+.kiro/
+
+# Build output
+build/
+cmake-build-*/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Compiled objects
+*.o
+*.a
+*.so
+*.dylib
+
+# Test artifacts
+/Testing/
