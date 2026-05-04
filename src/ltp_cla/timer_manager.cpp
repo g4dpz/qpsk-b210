@@ -68,7 +68,7 @@ uint64_t TimerManager::start_timer(std::chrono::milliseconds timeout,
 
 void TimerManager::cancel_timer(uint64_t timer_id) {
     std::lock_guard<std::mutex> lock(mtx_);
-    cancelled_.push_back(timer_id);
+    cancelled_.insert(timer_id);
     cv_.notify_one();
 }
 
@@ -105,10 +105,8 @@ void TimerManager::thread_func() {
             TimerEntry entry = heap_.top();
             heap_.pop();
 
-            auto cit = std::find(cancelled_.begin(), cancelled_.end(),
-                                 entry.timer_id);
+            auto cit = cancelled_.find(entry.timer_id);
             if (cit != cancelled_.end()) {
-                // Cancelled — discard and continue.
                 cancelled_.erase(cit);
                 continue;
             }

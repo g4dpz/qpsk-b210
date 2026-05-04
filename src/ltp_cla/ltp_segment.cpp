@@ -10,8 +10,7 @@ namespace ltp {
 // Helper: append SDNV-encoded value to a byte vector
 // ---------------------------------------------------------------------------
 static void append_sdnv(std::vector<uint8_t>& out, uint64_t value) {
-    auto encoded = sdnv::encode(value);
-    out.insert(out.end(), encoded.begin(), encoded.end());
+    sdnv::encode_into(value, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +56,9 @@ static bool decode_extensions(const uint8_t* data, size_t length, size_t& offset
 
 std::vector<uint8_t> LtpSegment::encode() const {
     std::vector<uint8_t> out;
-    out.reserve(64);  // reasonable initial capacity
+    out.reserve(64 + (SegType::is_data(segment_type)
+                      ? std::get<DataSegContent>(content).data.size()
+                      : 0));
 
     // Control byte: version (4 bits) | segment_type (4 bits)
     out.push_back(static_cast<uint8_t>((version << 4) | (segment_type & 0x0F)));

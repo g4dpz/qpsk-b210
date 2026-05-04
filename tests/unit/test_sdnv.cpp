@@ -5,6 +5,11 @@
 #include <stdexcept>
 #include <vector>
 
+// Helper: convert Encoded to vector for comparison
+static std::vector<uint8_t> to_vec(const sdnv::Encoded& enc) {
+    return {enc.bytes.data(), enc.bytes.data() + enc.length};
+}
+
 // Helper: decode from a vector
 static uint64_t decode_vec(const std::vector<uint8_t>& v, size_t& offset) {
     return sdnv::decode(v.data(), v.size(), offset);
@@ -16,38 +21,38 @@ static uint64_t decode_vec(const std::vector<uint8_t>& v, size_t& offset) {
 
 TEST(SdnvEncodeTest, Zero) {
     auto encoded = sdnv::encode(0);
-    EXPECT_EQ(encoded, std::vector<uint8_t>({0x00}));
-    EXPECT_EQ(encoded.size(), 1u);
+    EXPECT_EQ(to_vec(encoded), std::vector<uint8_t>({0x00}));
+    EXPECT_EQ(encoded.length, 1u);
 }
 
 TEST(SdnvEncodeTest, MaxOneByte_127) {
     auto encoded = sdnv::encode(127);
-    EXPECT_EQ(encoded, std::vector<uint8_t>({0x7F}));
-    EXPECT_EQ(encoded.size(), 1u);
+    EXPECT_EQ(to_vec(encoded), std::vector<uint8_t>({0x7F}));
+    EXPECT_EQ(encoded.length, 1u);
 }
 
 TEST(SdnvEncodeTest, MinTwoBytes_128) {
     auto encoded = sdnv::encode(128);
     // 128 = 0b10000000 → two 7-bit groups: [0000001] [0000000]
     // Big-endian: 0x81 0x00
-    EXPECT_EQ(encoded, (std::vector<uint8_t>{0x81, 0x00}));
-    EXPECT_EQ(encoded.size(), 2u);
+    EXPECT_EQ(to_vec(encoded), (std::vector<uint8_t>{0x81, 0x00}));
+    EXPECT_EQ(encoded.length, 2u);
 }
 
 TEST(SdnvEncodeTest, MaxTwoBytes_16383) {
     auto encoded = sdnv::encode(16383);
     // 16383 = 0x3FFF = 0b11111111111111 → two 7-bit groups: [1111111] [1111111]
     // Big-endian: 0xFF 0x7F
-    EXPECT_EQ(encoded, (std::vector<uint8_t>{0xFF, 0x7F}));
-    EXPECT_EQ(encoded.size(), 2u);
+    EXPECT_EQ(to_vec(encoded), (std::vector<uint8_t>{0xFF, 0x7F}));
+    EXPECT_EQ(encoded.length, 2u);
 }
 
 TEST(SdnvEncodeTest, MinThreeBytes_16384) {
     auto encoded = sdnv::encode(16384);
     // 16384 = 0x4000 = 0b100000000000000 → three 7-bit groups: [0000001] [0000000] [0000000]
     // Big-endian: 0x81 0x80 0x00
-    EXPECT_EQ(encoded, (std::vector<uint8_t>{0x81, 0x80, 0x00}));
-    EXPECT_EQ(encoded.size(), 3u);
+    EXPECT_EQ(to_vec(encoded), (std::vector<uint8_t>{0x81, 0x80, 0x00}));
+    EXPECT_EQ(encoded.length, 3u);
 }
 
 TEST(SdnvEncodeTest, MaxValue_2pow63minus1) {
@@ -55,24 +60,24 @@ TEST(SdnvEncodeTest, MaxValue_2pow63minus1) {
     uint64_t max_val = UINT64_C(9223372036854775807);
     auto encoded = sdnv::encode(max_val);
     // Should require 9 bytes (63 bits / 7 bits per byte = 9 bytes)
-    EXPECT_EQ(encoded.size(), 9u);
+    EXPECT_EQ(encoded.length, 9u);
     // Last byte should have continuation bit clear
-    EXPECT_EQ(encoded.back() & 0x80, 0);
+    EXPECT_EQ(encoded.bytes[encoded.length - 1] & 0x80, 0);
     // All other bytes should have continuation bit set
-    for (size_t i = 0; i < encoded.size() - 1; ++i) {
-        EXPECT_EQ(encoded[i] & 0x80, 0x80) << "Byte " << i << " should have continuation bit set";
+    for (size_t i = 0; i < encoded.length - 1; ++i) {
+        EXPECT_EQ(encoded.bytes[i] & 0x80, 0x80) << "Byte " << i << " should have continuation bit set";
     }
 }
 
 TEST(SdnvEncodeTest, SmallValues_ByteCounts) {
-    EXPECT_EQ(sdnv::encode(0).size(), 1u);
-    EXPECT_EQ(sdnv::encode(1).size(), 1u);
-    EXPECT_EQ(sdnv::encode(127).size(), 1u);
-    EXPECT_EQ(sdnv::encode(128).size(), 2u);
-    EXPECT_EQ(sdnv::encode(16383).size(), 2u);
-    EXPECT_EQ(sdnv::encode(16384).size(), 3u);
-    EXPECT_EQ(sdnv::encode(2097151).size(), 3u);
-    EXPECT_EQ(sdnv::encode(2097152).size(), 4u);
+    EXPECT_EQ(sdnv::encode(0).length, 1u);
+    EXPECT_EQ(sdnv::encode(1).length, 1u);
+    EXPECT_EQ(sdnv::encode(127).length, 1u);
+    EXPECT_EQ(sdnv::encode(128).length, 2u);
+    EXPECT_EQ(sdnv::encode(16383).length, 2u);
+    EXPECT_EQ(sdnv::encode(16384).length, 3u);
+    EXPECT_EQ(sdnv::encode(2097151).length, 3u);
+    EXPECT_EQ(sdnv::encode(2097152).length, 4u);
 }
 
 // ---------------------------------------------------------------------------
@@ -117,9 +122,10 @@ TEST(SdnvDecodeTest, MinThreeBytes_16384) {
 TEST(SdnvDecodeTest, MaxValue_2pow63minus1) {
     uint64_t max_val = UINT64_C(9223372036854775807);
     auto encoded = sdnv::encode(max_val);
+    auto vec = to_vec(encoded);
     size_t offset = 0;
-    EXPECT_EQ(decode_vec(encoded, offset), max_val);
-    EXPECT_EQ(offset, encoded.size());
+    EXPECT_EQ(decode_vec(vec, offset), max_val);
+    EXPECT_EQ(offset, encoded.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,12 +135,9 @@ TEST(SdnvDecodeTest, MaxValue_2pow63minus1) {
 TEST(SdnvDecodeTest, MultipleValuesInBuffer) {
     // Encode 0, 128, 16384 back-to-back
     std::vector<uint8_t> buffer;
-    auto e0 = sdnv::encode(0);
-    auto e128 = sdnv::encode(128);
-    auto e16384 = sdnv::encode(16384);
-    buffer.insert(buffer.end(), e0.begin(), e0.end());
-    buffer.insert(buffer.end(), e128.begin(), e128.end());
-    buffer.insert(buffer.end(), e16384.begin(), e16384.end());
+    sdnv::encode_into(0, buffer);
+    sdnv::encode_into(128, buffer);
+    sdnv::encode_into(16384, buffer);
 
     size_t offset = 0;
     EXPECT_EQ(decode_vec(buffer, offset), 0u);

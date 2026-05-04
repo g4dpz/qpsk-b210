@@ -55,15 +55,17 @@ RC_GTEST_PROP(LtpEngineProperty7, SegmentationSizeInvariant, ()) {
     cfg.max_concurrent_sessions = 10;
     LtpEngine engine(cfg);
 
+    std::vector<LtpSegment> sent;
+    engine.set_send_segment_callback([&](std::vector<uint8_t> enc) {
+        auto seg = LtpSegment::decode(enc.data(), enc.size());
+        if (seg && SegType::is_data(seg->segment_type)) sent.push_back(*seg);
+    });
+
     std::vector<uint8_t> data(data_size, 0xAB);
-    uint64_t sn = engine.start_session(data, *rc::gen::arbitrary<bool>());
+    uint64_t sn = engine.start_session(data, true);  // use red to keep session
     RC_ASSERT(sn != 0);
 
-    auto* session = engine.get_session(cfg.local_engine_id, sn);
-    RC_ASSERT(session != nullptr);
-
-    auto segments = engine.segment_data_readonly(*session);
-    for (const auto& seg : segments) {
+    for (const auto& seg : sent) {
         auto& ds = std::get<DataSegContent>(seg.content);
         RC_ASSERT(ds.data.size() <= max_seg);
         RC_ASSERT(ds.length == ds.data.size());
@@ -78,7 +80,6 @@ RC_GTEST_PROP(LtpEngineProperty6, SegmentationReassemblyRoundTrip, ()) {
     auto max_seg = *rc::gen::inRange<uint32_t>(1, 2000);
     auto data = *rc::gen::container<std::vector<uint8_t>>(
         rc::gen::arbitrary<uint8_t>());
-    // Limit data size for test speed
     if (data.size() > 5000) data.resize(5000);
 
     LtpEngineConfig cfg;
@@ -87,20 +88,19 @@ RC_GTEST_PROP(LtpEngineProperty6, SegmentationReassemblyRoundTrip, ()) {
     cfg.max_concurrent_sessions = 10;
     LtpEngine engine(cfg);
 
-    bool reliable = *rc::gen::arbitrary<bool>();
-    uint64_t sn = engine.start_session(data, reliable);
+    std::vector<LtpSegment> sent;
+    engine.set_send_segment_callback([&](std::vector<uint8_t> enc) {
+        auto seg = LtpSegment::decode(enc.data(), enc.size());
+        if (seg && SegType::is_data(seg->segment_type)) sent.push_back(*seg);
+    });
+
+    uint64_t sn = engine.start_session(data, true);  // red to keep session
     RC_ASSERT(sn != 0);
 
-    auto* session = engine.get_session(cfg.local_engine_id, sn);
-    RC_ASSERT(session != nullptr);
-
-    auto segments = engine.segment_data_readonly(*session);
-
-    // Reassemble: sort by offset and concatenate
+    // Reassemble
     std::vector<uint8_t> reassembled;
-    for (const auto& seg : segments) {
+    for (const auto& seg : sent) {
         auto& ds = std::get<DataSegContent>(seg.content);
-        // Verify offset matches current reassembly position
         RC_ASSERT(ds.offset == reassembled.size());
         reassembled.insert(reassembled.end(), ds.data.begin(), ds.data.end());
     }
@@ -159,28 +159,29 @@ RC_GTEST_PROP(LtpEngineProperty13, GreenSegmentsNoCheckpoint, ()) {
     cfg.max_concurrent_sessions = 10;
     LtpEngine engine(cfg);
 
+    std::vector<LtpSegment> sent;
+    engine.set_send_segment_callback([&](std::vector<uint8_t> enc) {
+        auto seg = LtpSegment::decode(enc.data(), enc.size());
+        if (seg) sent.push_back(*seg);
+    });
+
     std::vector<uint8_t> data(data_size, 0xCD);
     uint64_t sn = engine.start_session(data, false);  // green
     RC_ASSERT(sn != 0);
-
-    auto* session = engine.get_session(cfg.local_engine_id, sn);
-    RC_ASSERT(session != nullptr);
-
-    auto segments = engine.segment_data_readonly(*session);
-    RC_ASSERT(!segments.empty());
+    RC_ASSERT(!sent.empty());
 
     // No green segment should have a checkpoint flag
-    for (const auto& seg : segments) {
+    for (const auto& seg : sent) {
         RC_ASSERT(!SegType::has_checkpoint(seg.segment_type));
         auto& ds = std::get<DataSegContent>(seg.content);
         RC_ASSERT(!ds.checkpoint_serial.has_value());
     }
 
     // Final segment must have EOB
-    RC_ASSERT(SegType::has_eob(segments.back().segment_type));
+    RC_ASSERT(SegType::has_eob(sent.back().segment_type));
 
     // Non-final segments must NOT have EOB
-    for (size_t i = 0; i + 1 < segments.size(); ++i) {
-        RC_ASSERT(!SegType::has_eob(segments[i].segment_type));
+    for (size_t i = 0; i + 1 < sent.size(); ++i) {
+        RC_ASSERT(!SegType::has_eob(sent[i].segment_type));
     }
 }

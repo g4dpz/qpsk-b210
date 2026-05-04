@@ -75,10 +75,12 @@ TEST(LtpEngineTest, GreenSessionState) {
     auto engine = make_engine();
     std::vector<uint8_t> data(50, 0xDD);
     uint64_t sn = engine.start_session(data, false);
+    EXPECT_NE(sn, 0u);
 
+    // Green originator auto-completes — session is already cleaned up
     auto* session = engine.get_session(engine.config().local_engine_id, sn);
-    ASSERT_NE(session, nullptr);
-    EXPECT_FALSE(session->is_red);
+    EXPECT_EQ(session, nullptr);
+    EXPECT_EQ(engine.active_session_count(), 0u);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,24 +176,30 @@ TEST(LtpEngineTest, SegmentationMultipleRedSegments) {
 
 TEST(LtpEngineTest, SegmentationGreenData) {
     auto engine = make_engine(100);
+
+    std::vector<LtpSegment> sent;
+    engine.set_send_segment_callback([&](std::vector<uint8_t> enc) {
+        auto seg = LtpSegment::decode(enc.data(), enc.size());
+        if (seg) sent.push_back(*seg);
+    });
+
     std::vector<uint8_t> data(250, 0x77);
-    uint64_t sn = engine.start_session(data, false);
+    engine.start_session(data, false);
 
-    auto* session = engine.get_session(engine.config().local_engine_id, sn);
-    ASSERT_NE(session, nullptr);
+    ASSERT_EQ(sent.size(), 3u);  // 100 + 100 + 50
 
-    auto segments = engine.segment_data_readonly(*session);
-    ASSERT_EQ(segments.size(), 3u);  // 100 + 100 + 50
-
-    EXPECT_EQ(segments[0].segment_type, SegType::GREEN_DATA);
-    EXPECT_EQ(segments[1].segment_type, SegType::GREEN_DATA);
-    EXPECT_EQ(segments[2].segment_type, SegType::GREEN_DATA_EOB);
+    EXPECT_EQ(sent[0].segment_type, SegType::GREEN_DATA);
+    EXPECT_EQ(sent[1].segment_type, SegType::GREEN_DATA);
+    EXPECT_EQ(sent[2].segment_type, SegType::GREEN_DATA_EOB);
 
     // No checkpoint on any green segment
-    for (const auto& seg : segments) {
+    for (const auto& seg : sent) {
         auto& ds = std::get<DataSegContent>(seg.content);
         EXPECT_FALSE(ds.checkpoint_serial.has_value());
     }
+
+    // Green originator auto-completes
+    EXPECT_EQ(engine.active_session_count(), 0u);
 }
 
 // ---------------------------------------------------------------------------
@@ -1088,15 +1096,12 @@ TEST(LtpEngineTest, GreenOriginatorCompletesImmediately) {
 
     std::vector<uint8_t> payload(100, 0xAA);
     uint64_t sn = engine.start_session(payload, false);
+    EXPECT_NE(sn, 0u);
 
-    // Originator session should still be active (green originator doesn't
-    // auto-complete in current implementation — it stays until explicitly
-    // cleaned up or we add auto-complete for green originator)
-    // This is acceptable: the originator has no way to know the receiver got it.
-    // The session can be cleaned up by the application layer.
+    // Green originator auto-completes after sending all segments
     auto* session = engine.get_session(engine.config().local_engine_id, sn);
-    // Session exists — green originator doesn't get report-ack
-    EXPECT_NE(session, nullptr);
+    EXPECT_EQ(session, nullptr);
+    EXPECT_EQ(engine.active_session_count(), 0u);
 }
 
 // ===========================================================================

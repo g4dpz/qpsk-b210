@@ -84,10 +84,10 @@ RC_GTEST_PROP(SdnvProperty1, EncodeDecodeRoundTrip, ()) {
 
     auto encoded = sdnv::encode(value);
     size_t offset = 0;
-    auto decoded = sdnv::decode(encoded.data(), encoded.size(), offset);
+    auto decoded = sdnv::decode(encoded.data(), encoded.length, offset);
 
     RC_ASSERT(decoded == value);
-    RC_ASSERT(offset == encoded.size());
+    RC_ASSERT(offset == encoded.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -100,13 +100,13 @@ RC_GTEST_PROP(SdnvProperty2, MinimumByteEncoding, ()) {
     auto encoded = sdnv::encode(value);
 
     // The encoding must not be empty.
-    RC_ASSERT(!encoded.empty());
+    RC_ASSERT(!encoded.length == 0);
 
     // If the encoding is more than 1 byte, the first byte must not be
     // a "leading zero" continuation byte (0x80), which would mean the
     // top 7 data bits are all zero — wasting a byte.
-    if (encoded.size() > 1) {
-        RC_ASSERT(encoded[0] != 0x80);
+    if (encoded.length > 1) {
+        RC_ASSERT(encoded.bytes[0] != 0x80);
     }
 }
 

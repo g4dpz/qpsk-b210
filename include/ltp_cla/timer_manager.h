@@ -7,6 +7,7 @@
 #include <mutex>
 #include <queue>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace ltp {
@@ -88,7 +89,7 @@ private:
                         std::greater<TimerEntry>> heap_;
 
     // Set of cancelled timer IDs (lazy deletion from heap).
-    std::vector<uint64_t> cancelled_;
+    std::unordered_set<uint64_t> cancelled_;
 
     std::thread thread_;
 };

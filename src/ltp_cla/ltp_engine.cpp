@@ -51,6 +51,12 @@ uint64_t LtpEngine::start_session(std::vector<uint8_t> data, bool reliable) {
         send_segment(seg);
     }
 
+    // Green originator: auto-complete after all segments sent (no handshake)
+    if (!reliable) {
+        sessions_.erase(key);
+        diagnostics_.sessions_completed++;
+    }
+
     return sn;
 }
 
