@@ -87,6 +87,7 @@ endif()
 # Project source and include directories
 # --------------------------------------------------------------------------
 add_subdirectory(src)
+add_subdirectory(src/ltp_cla)
 
 if(QPSK_BUILD_TESTS)
     add_subdirectory(tests)
