@@ -5,6 +5,7 @@
 # Collect all .cpp source files in src/ EXCEPT main.cpp
 file(GLOB_RECURSE QPSK_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 list(FILTER QPSK_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
+list(FILTER QPSK_SOURCES EXCLUDE REGEX ".*/ltp_cla/.*")
 
 # When there are no source files yet, create an INTERFACE library so the
 # project still configures cleanly.  Once the first .cpp is added, switch
