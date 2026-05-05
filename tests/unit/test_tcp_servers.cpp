@@ -162,7 +162,7 @@ TEST_F(TcpInputServerTest, ClientDisconnectAndReconnect) {
     server.stop();
 }
 
-TEST_F(TcpInputServerTest, NewClientRejectedWhileConnected) {
+TEST_F(TcpInputServerTest, NewClientReplacesExistingConnection) {
     qpsk_b200::TcpInputServer server("127.0.0.1", port_, 64);
     server.start();
 
@@ -171,15 +171,15 @@ TEST_F(TcpInputServerTest, NewClientRejectedWhileConnected) {
     server.poll_once(50);
     EXPECT_TRUE(server.connected());
 
-    // Second client tries to connect — should be rejected
+    // Second client connects — should replace the first
     int c2 = connect_client(port_);
-    ASSERT_GE(c2, 0);  // connect succeeds at TCP level (accept then close)
+    ASSERT_GE(c2, 0);
     server.poll_once(50);
     EXPECT_TRUE(server.connected());
 
-    // c1 should still work — send data and verify
+    // c2 should work — send data and verify
     std::vector<uint8_t> data = {0xAA, 0xBB};
-    ASSERT_TRUE(send_all(c1, data));
+    ASSERT_TRUE(send_all(c2, data));
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     server.poll_once(50);
     EXPECT_EQ(server.buffered_bytes(), 2u);
