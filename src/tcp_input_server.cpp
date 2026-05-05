@@ -116,20 +116,18 @@ void TcpInputServer::poll_once(int timeout_ms) {
             uint16_t new_port = ntohs(client_addr.sin_port);
 
             if (client_fd_ >= 0) {
-                // Already have a client — reject the new one
-                spdlog::warn("TCP input server: rejected connection from "
-                             "{}:{} — a client is already connected ({}:{})",
-                             ip_buf, new_port, client_addr_, client_port_);
-                ::close(new_fd);
-            } else {
-                client_fd_ = new_fd;
-                client_addr_ = ip_buf;
-                client_port_ = new_port;
-                client_bytes_received_ = 0;
-
-                spdlog::info("TCP input server: client connected from {}:{}",
-                             client_addr_, client_port_);
+                // Replace existing client with new one
+                spdlog::info("TCP input server: replacing client {}:{} with {}:{}",
+                             client_addr_, client_port_, ip_buf, new_port);
+                ::close(client_fd_);
             }
+            client_fd_ = new_fd;
+            client_addr_ = ip_buf;
+            client_port_ = new_port;
+            client_bytes_received_ = 0;
+
+            spdlog::info("TCP input server: client connected from {}:{}",
+                         client_addr_, client_port_);
         }
     }
 
@@ -157,6 +155,12 @@ std::vector<uint8_t> TcpInputServer::read_frame() {
                   buffer_.begin() +
                       static_cast<std::ptrdiff_t>(frame_size_));
     return frame;
+}
+
+std::vector<uint8_t> TcpInputServer::flush() {
+    std::vector<uint8_t> data;
+    data.swap(buffer_);
+    return data;
 }
 
 bool TcpInputServer::has_frame() const {
