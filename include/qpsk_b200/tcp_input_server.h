@@ -48,6 +48,10 @@ public:
     /// if not enough data has accumulated.
     std::vector<uint8_t> read_frame();
 
+    /// Flush all buffered data regardless of frame_size.
+    /// Returns whatever is in the buffer (may be less than frame_size).
+    std::vector<uint8_t> flush();
+
     /// Check whether a full frame-sized chunk is available in the buffer.
     bool has_frame() const;
 

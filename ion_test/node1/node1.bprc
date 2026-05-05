@@ -1,0 +1,20 @@
+## BP configuration for node 1 (sender)
+## Sends bundles via STCP to ltp_cla_app ingress at 127.0.0.1:4556
+
+1
+
+a scheme ipn 'ipnfw' 'ipnadminep'
+
+a endpoint ipn:1.0 x
+a endpoint ipn:1.1 x
+a endpoint ipn:1.2 x
+
+a protocol stcp 1400 100
+
+## Induct - not needed for sending but ION requires one
+a induct stcp 127.0.0.1:4560 stcpcli
+
+## Outduct - connects to ltp_cla_app ingress
+a outduct stcp 127.0.0.1:4556 stcpclo
+
+s

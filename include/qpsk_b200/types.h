@@ -39,6 +39,9 @@ struct Config {
     bool     fec_enabled  = true;
     CodeRate fec_code_rate = CodeRate::RATE_1_2;
 
+    // Device selection
+    std::string device_serial;  // empty = auto-discover first device
+
     // Validation — throws std::invalid_argument on invalid params
     void validate() const;
 

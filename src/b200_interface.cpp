@@ -29,19 +29,27 @@ const char* NO_UHD_MSG =
 #ifdef QPSK_HAS_UHD
 
 B200Interface::B200Interface(const Config& config) {
-    // Discover B200 devices
+    // Discover B200 devices — optionally filter by serial
     uhd::device_addr_t hint;
+    if (!config.device_serial.empty()) {
+        hint["serial"] = config.device_serial;
+    }
     uhd::device_addrs_t devices = uhd::device::find(hint);
     if (devices.empty()) {
-        throw std::runtime_error(
-            "No B200 device found. "
-            "Check USB connection and UHD driver installation.");
+        std::string msg = "No B200 device found";
+        if (!config.device_serial.empty()) {
+            msg += " with serial '" + config.device_serial + "'";
+        }
+        msg += ". Check USB connection and UHD driver installation.";
+        throw std::runtime_error(msg);
     }
 
     // Create the multi_usrp handle
     usrp_ = uhd::usrp::multi_usrp::make(devices.front().to_string());
 
-    spdlog::info("B200Interface: device discovered and connected");
+    spdlog::info("B200Interface: device discovered and connected (serial={})",
+                 devices.front().has_key("serial")
+                     ? devices.front()["serial"] : "unknown");
 }
 
 B200Interface::~B200Interface() = default;

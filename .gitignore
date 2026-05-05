@@ -21,3 +21,6 @@ cmake-build-*/
 
 # Test artifacts
 /Testing/
+
+# External dependencies
+ION-DTN
