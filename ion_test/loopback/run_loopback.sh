@@ -83,7 +83,7 @@ EOF
 
 cat > host1.ltprc << 'EOF'
 1 32
-a span 1 32 1400 1 'udplso 127.0.0.1:1113'
+a span 1 32 32 1400 1400 1 'udplso 127.0.0.1:1113'
 s 'udplsi 127.0.0.1:1114'
 EOF
 

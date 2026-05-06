@@ -84,7 +84,7 @@ bpadmin nodeB.bprc
 sleep 1
 
 echo "Configuring IPN routing..."
-ionadmin nodeB.ipnrc 2>/dev/null || true
+ipnadmin nodeB.ipnrc 2>/dev/null || ionadmin nodeB.ipnrc 2>/dev/null || true
 sleep 1
 
 echo ""
