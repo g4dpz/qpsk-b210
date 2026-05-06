@@ -54,7 +54,7 @@ $QPSK_APP --mode txrx $SERIAL_ARG \
     --tx-freq $TX_FREQ --rx-freq $RX_FREQ \
     --sample-rate 1e6 --tx-gain $TX_GAIN --rx-gain $RX_GAIN \
     --fec-enabled 1 \
-    --acquisition-symbols 128 --ramp-symbols 8 \
+    --acquisition-symbols 0 --ramp-symbols 0 \
     > /tmp/qpsk_nodeB.log 2>&1 &
 QPSK_PID=$!
 
