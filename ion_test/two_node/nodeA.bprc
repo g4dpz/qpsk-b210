@@ -1,0 +1,20 @@
+## BP configuration for Node A (engine ID 1 = ipn:1.x)
+
+1
+
+a scheme ipn 'ipnfw' 'ipnadminep'
+
+a endpoint ipn:1.0 x
+a endpoint ipn:1.1 x
+a endpoint ipn:1.2 x
+
+## LTP protocol — class 1 = best effort, 100 = max nominal rate Mbps
+a protocol ltp 1400 100
+
+## Induct: receive from LTP engine 1 (local)
+a induct ltp 1 ltpcli
+
+## Outduct: send via LTP engine 2 (remote)
+a outduct ltp 2 ltpclo
+
+s

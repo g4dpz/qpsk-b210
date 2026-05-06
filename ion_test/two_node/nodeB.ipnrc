@@ -1,0 +1,4 @@
+## IPN routing for Node B
+## All traffic to node 1 goes via LTP engine 1 outduct
+
+a plan 1 ltp/1

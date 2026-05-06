@@ -1,0 +1,11 @@
+## LTP configuration for Node B
+## Engine ID: 2
+## Remote engine: 1 (Node A)
+
+1 32
+
+## span to engine 1 (Node A)
+a span 1 32 1400 1 1 'udplso 127.0.0.1:1113'
+
+## inbound LSI
+s 'udplsi 127.0.0.1:1114'

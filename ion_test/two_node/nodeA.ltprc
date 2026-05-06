@@ -1,0 +1,18 @@
+## LTP configuration for Node A
+## Engine ID: 1
+## Remote engine: 2 (Node B)
+##
+## LTP sends segments via UDP to local modem at :1113
+## LTP receives segments via UDP from local modem at :1114
+
+1 32
+
+## span to engine 2 (Node B):
+##   max segment size: 1400 bytes
+##   aggregation size limit: 1 block
+##   aggregation time limit: 1 sec
+##   outbound LSO: udplso sends to local modem TX input on 127.0.0.1:1113
+a span 2 32 1400 1 1 'udplso 127.0.0.1:1113'
+
+## inbound LSI: udplsi listens for datagrams from local modem RX output on :1114
+s 'udplsi 127.0.0.1:1114'
