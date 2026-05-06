@@ -16,12 +16,19 @@ enum class CodeRate : uint8_t {
 // Runtime configuration
 struct Config {
     // RF parameters
-    double center_freq    = 2.4e9;   // Hz
+    double center_freq    = 2.4e9;   // Hz (used when tx_freq/rx_freq not set)
+    double tx_freq        = 0.0;     // Hz (0 = use center_freq)
+    double rx_freq        = 0.0;     // Hz (0 = use center_freq)
     double sample_rate    = 1e6;     // samples/sec
     double tx_gain        = 40.0;    // dB
     double rx_gain        = 40.0;    // dB
     std::string tx_antenna = "TX/RX";
     std::string rx_antenna = "RX2";
+
+    /// Get effective TX frequency (tx_freq if set, otherwise center_freq)
+    double effective_tx_freq() const { return tx_freq > 0 ? tx_freq : center_freq; }
+    /// Get effective RX frequency (rx_freq if set, otherwise center_freq)
+    double effective_rx_freq() const { return rx_freq > 0 ? rx_freq : center_freq; }
 
     // DSP parameters
     int    samples_per_symbol = 4;

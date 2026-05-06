@@ -59,13 +59,13 @@ B200Interface& B200Interface::operator=(B200Interface&&) noexcept = default;
 
 void B200Interface::configure_tx(const Config& config) {
     usrp_->set_tx_rate(config.sample_rate);
-    usrp_->set_tx_freq(uhd::tune_request_t(config.center_freq));
+    usrp_->set_tx_freq(uhd::tune_request_t(config.effective_tx_freq()));
     usrp_->set_tx_gain(config.tx_gain);
     usrp_->set_tx_antenna(config.tx_antenna);
 
     spdlog::info("B200Interface TX configured: freq={:.0f} Hz, rate={:.0f} sps, "
                  "gain={:.1f} dB, antenna={}",
-                 config.center_freq, config.sample_rate,
+                 config.effective_tx_freq(), config.sample_rate,
                  config.tx_gain, config.tx_antenna);
 
     // Create TX streamer with fc32 host format, sc16 wire format
@@ -75,13 +75,13 @@ void B200Interface::configure_tx(const Config& config) {
 
 void B200Interface::configure_rx(const Config& config) {
     usrp_->set_rx_rate(config.sample_rate);
-    usrp_->set_rx_freq(uhd::tune_request_t(config.center_freq));
+    usrp_->set_rx_freq(uhd::tune_request_t(config.effective_rx_freq()));
     usrp_->set_rx_gain(config.rx_gain);
     usrp_->set_rx_antenna(config.rx_antenna);
 
     spdlog::info("B200Interface RX configured: freq={:.0f} Hz, rate={:.0f} sps, "
                  "gain={:.1f} dB, antenna={}",
-                 config.center_freq, config.sample_rate,
+                 config.effective_rx_freq(), config.sample_rate,
                  config.rx_gain, config.rx_antenna);
 
     // Create RX streamer with fc32 host format, sc16 wire format
