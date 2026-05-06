@@ -36,11 +36,22 @@ struct Config {
     int    rrc_span_symbols   = 6;     // filter spans 6 symbols
     std::vector<uint8_t> preamble = {1,1,1,1,1,0,0,1,1,0,1,0,1};
 
+    // Burst acquisition parameters
+    int acquisition_symbols = 128;  // training symbols before Barker sync word
+    int ramp_symbols        = 8;    // symbols for amplitude ramp up/down
+
     // TCP parameters
     std::string tcp_input_addr  = "127.0.0.1";
     uint16_t    tcp_input_port  = 5000;
     std::string tcp_output_addr = "127.0.0.1";
     uint16_t    tcp_output_port = 5001;
+
+    // UDP parameters (alternative to TCP, selected by use_udp flag)
+    bool        use_udp          = false;
+    std::string udp_input_addr   = "127.0.0.1";
+    uint16_t    udp_input_port   = 1113;   // ION's default LTP UDP port
+    std::string udp_output_addr  = "127.0.0.1";
+    uint16_t    udp_output_port  = 1114;
 
     // FEC parameters
     bool     fec_enabled  = true;

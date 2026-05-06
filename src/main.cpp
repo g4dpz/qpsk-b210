@@ -14,6 +14,8 @@
 #include "qpsk_b200/spsc_queue.h"
 #include "qpsk_b200/tcp_input_server.h"
 #include "qpsk_b200/tcp_output_server.h"
+#include "qpsk_b200/udp_input.h"
+#include "qpsk_b200/udp_output.h"
 #include "qpsk_b200/types.h"
 
 #include <spdlog/spdlog.h>
@@ -70,6 +72,13 @@ static void print_usage(const char* prog) {
         << "  --tcp-output-port <port> TCP output listen port (default: 5001)\n"
         << "  --fec-enabled <0|1>     Enable FEC (default: 1)\n"
         << "  --fec-code-rate <rate>  FEC code rate: \"1/2\" or \"3/4\" (default: 1/2)\n"
+        << "  --udp                   Use UDP mode instead of TCP (for ION-DTN LTP)\n"
+        << "  --udp-input-addr <addr> UDP input bind address (default: 127.0.0.1)\n"
+        << "  --udp-input-port <port> UDP input bind port (default: 1113)\n"
+        << "  --udp-output-addr <addr> UDP output destination address (default: 127.0.0.1)\n"
+        << "  --udp-output-port <port> UDP output destination port (default: 1114)\n"
+        << "  --acquisition-symbols <N> Training symbols before sync word (default: 128)\n"
+        << "  --ramp-symbols <N>      Amplitude ramp symbols (default: 8)\n"
         << "  --help                  Show this help message\n";
 }
 
@@ -88,6 +97,12 @@ static AppOptions parse_args(int argc, char* argv[]) {
         if (arg == "--help" || arg == "-h") {
             print_usage(argv[0]);
             std::exit(0);
+        }
+
+        // --udp is a standalone flag (no value required)
+        if (arg == "--udp") {
+            opts.config.use_udp = true;
+            continue;
         }
 
         // All remaining flags require a value
@@ -150,6 +165,18 @@ static AppOptions parse_args(int argc, char* argv[]) {
                           << "'. Use \"1/2\" or \"3/4\".\n";
                 std::exit(1);
             }
+        } else if (arg == "--udp-input-addr") {
+            opts.config.udp_input_addr = val;
+        } else if (arg == "--udp-input-port") {
+            opts.config.udp_input_port = static_cast<uint16_t>(std::stoi(val));
+        } else if (arg == "--udp-output-addr") {
+            opts.config.udp_output_addr = val;
+        } else if (arg == "--udp-output-port") {
+            opts.config.udp_output_port = static_cast<uint16_t>(std::stoi(val));
+        } else if (arg == "--acquisition-symbols") {
+            opts.config.acquisition_symbols = std::stoi(val);
+        } else if (arg == "--ramp-symbols") {
+            opts.config.ramp_symbols = std::stoi(val);
         } else {
             std::cerr << "Error: unknown option " << arg << "\n";
             print_usage(argv[0]);
@@ -246,12 +273,17 @@ static void tx_thread_fn(
     qpsk_b200::Encoder& encoder,
     qpsk_b200::B200Interface& b200,
     qpsk_b200::SpscQueue<std::vector<uint8_t>>& tcp_to_tx,
+    const qpsk_b200::Config& config,
     const std::atomic<bool>& running)
 {
     spdlog::info("TX thread started");
 
     // Lead-in/lead-out silence to give hardware time to ramp and RX to lock
     constexpr size_t LEAD_SAMPLES = 4096;
+
+    // Ramp length in samples (linear amplitude taper)
+    const size_t ramp_samples = static_cast<size_t>(
+        config.ramp_symbols * config.samples_per_symbol);
 
     try {
         while (running.load(std::memory_order_acquire)) {
@@ -265,6 +297,22 @@ static void tx_thread_fn(
 
             spdlog::info("TX: sending {} payload bytes → {} IQ samples",
                          payload.size(), samples.size());
+
+            // Apply linear amplitude ramp-up to the first ramp_samples
+            if (ramp_samples > 0 && samples.size() > 2 * ramp_samples) {
+                for (size_t i = 0; i < ramp_samples; ++i) {
+                    float gain = static_cast<float>(i) /
+                                 static_cast<float>(ramp_samples);
+                    samples[i] *= gain;
+                }
+                // Apply linear amplitude ramp-down to the last ramp_samples
+                size_t start = samples.size() - ramp_samples;
+                for (size_t i = 0; i < ramp_samples; ++i) {
+                    float gain = static_cast<float>(ramp_samples - i) /
+                                 static_cast<float>(ramp_samples);
+                    samples[start + i] *= gain;
+                }
+            }
 
             // Pad with silence before and after the burst
             std::vector<std::complex<float>> padded;
@@ -407,6 +455,63 @@ static void tcp_output_thread_fn(
     spdlog::info("TCP output thread stopped");
 }
 
+/// UDP Input thread: receives datagrams, enqueues each directly to TX queue.
+/// Each datagram = one complete LTP segment = one QPSK burst.
+static void udp_input_thread_fn(
+    qpsk_b200::UdpInput& udp_in,
+    qpsk_b200::SpscQueue<std::vector<uint8_t>>& udp_to_tx,
+    const std::atomic<bool>& running)
+{
+    spdlog::info("UDP input thread started");
+    try {
+        while (running.load(std::memory_order_acquire)) {
+            auto datagram = udp_in.recv_datagram(50);
+            if (datagram.empty()) continue;
+
+            spdlog::debug("UDP input: received {} byte datagram",
+                          datagram.size());
+            if (!udp_to_tx.try_push(std::move(datagram))) {
+                spdlog::warn("UDP→TX queue overflow: dropped datagram");
+            }
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("UDP input thread error: {}", e.what());
+    }
+    spdlog::info("UDP input thread stopped");
+}
+
+/// UDP Output thread: dequeues decoded payloads, sends each as a UDP datagram.
+static void udp_output_thread_fn(
+    qpsk_b200::UdpOutput& udp_out,
+    qpsk_b200::SpscQueue<std::vector<uint8_t>>& rx_to_udp,
+    const std::atomic<bool>& running)
+{
+    spdlog::info("UDP output thread started");
+    try {
+        while (running.load(std::memory_order_acquire)) {
+            std::vector<uint8_t> payload;
+            if (!rx_to_udp.pop_wait(payload, std::chrono::milliseconds(100))) {
+                continue;  // timeout — check running flag and retry
+            }
+
+            spdlog::debug("UDP output: sending {} byte datagram", payload.size());
+            if (!udp_out.send_datagram(payload)) {
+                spdlog::warn("UDP output: failed to send {} byte datagram",
+                             payload.size());
+            }
+        }
+
+        // Drain remaining items on shutdown
+        std::vector<uint8_t> payload;
+        while (rx_to_udp.try_pop(payload)) {
+            udp_out.send_datagram(payload);
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("UDP output thread error: {}", e.what());
+    }
+    spdlog::info("UDP output thread stopped");
+}
+
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
@@ -446,8 +551,17 @@ int main(int argc, char* argv[]) {
                      cfg.fec_code_rate == qpsk_b200::CodeRate::RATE_1_2
                          ? "1/2" : "3/4");
     }
-    spdlog::info("  TCP input   : {}:{}", cfg.tcp_input_addr, cfg.tcp_input_port);
-    spdlog::info("  TCP output  : {}:{}", cfg.tcp_output_addr, cfg.tcp_output_port);
+    if (cfg.use_udp) {
+        spdlog::info("  Transport   : UDP");
+        spdlog::info("  UDP input   : {}:{}", cfg.udp_input_addr, cfg.udp_input_port);
+        spdlog::info("  UDP output  : {}:{}", cfg.udp_output_addr, cfg.udp_output_port);
+    } else {
+        spdlog::info("  Transport   : TCP");
+        spdlog::info("  TCP input   : {}:{}", cfg.tcp_input_addr, cfg.tcp_input_port);
+        spdlog::info("  TCP output  : {}:{}", cfg.tcp_output_addr, cfg.tcp_output_port);
+    }
+    spdlog::info("  Acquisition : {} symbols", cfg.acquisition_symbols);
+    spdlog::info("  Ramp        : {} symbols", cfg.ramp_symbols);
 
     // ---- Initialize components ----
     std::unique_ptr<qpsk_b200::B200Interface> b200;
@@ -474,77 +588,123 @@ int main(int argc, char* argv[]) {
     qpsk_b200::Encoder encoder(cfg);
     qpsk_b200::Decoder decoder(cfg);
 
-    qpsk_b200::TcpInputServer tcp_input(
-        cfg.tcp_input_addr, cfg.tcp_input_port);
-    qpsk_b200::TcpOutputServer tcp_output(
-        cfg.tcp_output_addr, cfg.tcp_output_port);
+    // ---- Create I/O layer (TCP or UDP) ----
+    std::unique_ptr<qpsk_b200::TcpInputServer> tcp_input;
+    std::unique_ptr<qpsk_b200::TcpOutputServer> tcp_output;
+    std::unique_ptr<qpsk_b200::UdpInput> udp_input;
+    std::unique_ptr<qpsk_b200::UdpOutput> udp_output;
 
-    // ---- Start TCP servers (only those needed for the mode) ----
-    if (mode == AppMode::TX_ONLY || mode == AppMode::TX_RX) {
-        try {
-            tcp_input.start();
-            spdlog::info("TCP input server listening on {}:{}",
-                         cfg.tcp_input_addr, cfg.tcp_input_port);
-        } catch (const std::exception& e) {
-            spdlog::error("Failed to start TCP input server: {}", e.what());
-            return 1;
+    if (cfg.use_udp) {
+        // UDP mode
+        if (mode == AppMode::TX_ONLY || mode == AppMode::TX_RX) {
+            udp_input = std::make_unique<qpsk_b200::UdpInput>(
+                cfg.udp_input_addr, cfg.udp_input_port);
+            try {
+                udp_input->start();
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to start UDP input: {}", e.what());
+                return 1;
+            }
         }
-    }
+        if (mode == AppMode::RX_ONLY || mode == AppMode::TX_RX) {
+            udp_output = std::make_unique<qpsk_b200::UdpOutput>(
+                cfg.udp_output_addr, cfg.udp_output_port);
+            try {
+                udp_output->start();
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to start UDP output: {}", e.what());
+                if (udp_input) udp_input->stop();
+                return 1;
+            }
+        }
+    } else {
+        // TCP mode (existing behavior)
+        tcp_input = std::make_unique<qpsk_b200::TcpInputServer>(
+            cfg.tcp_input_addr, cfg.tcp_input_port);
+        tcp_output = std::make_unique<qpsk_b200::TcpOutputServer>(
+            cfg.tcp_output_addr, cfg.tcp_output_port);
 
-    if (mode == AppMode::RX_ONLY || mode == AppMode::TX_RX) {
-        try {
-            tcp_output.start();
-            spdlog::info("TCP output server listening on {}:{}",
-                         cfg.tcp_output_addr, cfg.tcp_output_port);
-        } catch (const std::exception& e) {
-            spdlog::error("Failed to start TCP output server: {}", e.what());
-            if (mode == AppMode::TX_RX) tcp_input.stop();
-            return 1;
+        if (mode == AppMode::TX_ONLY || mode == AppMode::TX_RX) {
+            try {
+                tcp_input->start();
+                spdlog::info("TCP input server listening on {}:{}",
+                             cfg.tcp_input_addr, cfg.tcp_input_port);
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to start TCP input server: {}", e.what());
+                return 1;
+            }
+        }
+
+        if (mode == AppMode::RX_ONLY || mode == AppMode::TX_RX) {
+            try {
+                tcp_output->start();
+                spdlog::info("TCP output server listening on {}:{}",
+                             cfg.tcp_output_addr, cfg.tcp_output_port);
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to start TCP output server: {}", e.what());
+                if (mode == AppMode::TX_RX) tcp_input->stop();
+                return 1;
+            }
         }
     }
 
     // ---- Create SPSC queues ----
-    qpsk_b200::SpscQueue<std::vector<uint8_t>> tcp_to_tx(64);
-    qpsk_b200::SpscQueue<std::vector<uint8_t>> rx_to_tcp(64);
+    qpsk_b200::SpscQueue<std::vector<uint8_t>> input_to_tx(64);
+    qpsk_b200::SpscQueue<std::vector<uint8_t>> rx_to_output(64);
 
     // ---- Spawn worker threads ----
     spdlog::info("Spawning worker threads");
 
-    std::thread tcp_in_thread;
+    std::thread input_thread;
     std::thread tx_thread;
     std::thread rx_thread;
-    std::thread tcp_out_thread;
+    std::thread output_thread;
 
-    // TX path: TCP input → encoder → B200 TX
+    // TX path: input (TCP or UDP) → encoder → B200 TX
     if (mode == AppMode::TX_ONLY || mode == AppMode::TX_RX) {
-        tcp_in_thread = std::thread(tcp_input_thread_fn,
-                                    std::ref(tcp_input),
-                                    std::ref(tcp_to_tx),
-                                    std::cref(g_running));
+        if (cfg.use_udp) {
+            input_thread = std::thread(udp_input_thread_fn,
+                                       std::ref(*udp_input),
+                                       std::ref(input_to_tx),
+                                       std::cref(g_running));
+        } else {
+            input_thread = std::thread(tcp_input_thread_fn,
+                                       std::ref(*tcp_input),
+                                       std::ref(input_to_tx),
+                                       std::cref(g_running));
+        }
 
         if (b200) {
             tx_thread = std::thread(tx_thread_fn,
                                     std::ref(encoder),
                                     std::ref(*b200),
-                                    std::ref(tcp_to_tx),
+                                    std::ref(input_to_tx),
+                                    std::cref(cfg),
                                     std::cref(g_running));
         }
     }
 
-    // RX path: B200 RX → decoder → TCP output
+    // RX path: B200 RX → decoder → output (TCP or UDP)
     if (mode == AppMode::RX_ONLY || mode == AppMode::TX_RX) {
         if (b200) {
             rx_thread = std::thread(rx_thread_fn,
                                     std::ref(decoder),
                                     std::ref(*b200),
-                                    std::ref(rx_to_tcp),
+                                    std::ref(rx_to_output),
                                     std::cref(g_running));
         }
 
-        tcp_out_thread = std::thread(tcp_output_thread_fn,
-                                     std::ref(tcp_output),
-                                     std::ref(rx_to_tcp),
-                                     std::cref(g_running));
+        if (cfg.use_udp) {
+            output_thread = std::thread(udp_output_thread_fn,
+                                        std::ref(*udp_output),
+                                        std::ref(rx_to_output),
+                                        std::cref(g_running));
+        } else {
+            output_thread = std::thread(tcp_output_thread_fn,
+                                        std::ref(*tcp_output),
+                                        std::ref(rx_to_output),
+                                        std::cref(g_running));
+        }
     }
 
     spdlog::info("All threads running. Press Ctrl+C to stop.");
@@ -557,17 +717,18 @@ int main(int argc, char* argv[]) {
     spdlog::info("Shutdown signal received — stopping threads");
 
     // ---- Join all threads ----
-    if (tcp_in_thread.joinable()) tcp_in_thread.join();
+    if (input_thread.joinable()) input_thread.join();
     if (tx_thread.joinable()) tx_thread.join();
     if (rx_thread.joinable()) rx_thread.join();
-    if (tcp_out_thread.joinable()) tcp_out_thread.join();
+    if (output_thread.joinable()) output_thread.join();
 
-    // ---- Stop TCP servers ----
-    if (mode == AppMode::TX_ONLY || mode == AppMode::TX_RX) {
-        tcp_input.stop();
-    }
-    if (mode == AppMode::RX_ONLY || mode == AppMode::TX_RX) {
-        tcp_output.stop();
+    // ---- Stop I/O layer ----
+    if (cfg.use_udp) {
+        if (udp_input) udp_input->stop();
+        if (udp_output) udp_output->stop();
+    } else {
+        if (tcp_input) tcp_input->stop();
+        if (tcp_output) tcp_output->stop();
     }
 
     spdlog::info("QPSK B200 Codec stopped");

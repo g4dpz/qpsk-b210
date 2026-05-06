@@ -116,6 +116,22 @@ void Config::validate() const {
         throw std::invalid_argument(
             "preamble must not be empty");
     }
+
+    // acquisition_symbols: >= 0
+    if (acquisition_symbols < 0) {
+        std::ostringstream oss;
+        oss << "acquisition_symbols " << acquisition_symbols
+            << " must be >= 0";
+        throw std::invalid_argument(oss.str());
+    }
+
+    // ramp_symbols: >= 0
+    if (ramp_symbols < 0) {
+        std::ostringstream oss;
+        oss << "ramp_symbols " << ramp_symbols
+            << " must be >= 0";
+        throw std::invalid_argument(oss.str());
+    }
 }
 
 void Config::to_json(const std::string& path) const {
@@ -137,6 +153,8 @@ void Config::to_json(const std::string& path) const {
     j["tcp_output_port"]   = tcp_output_port;
     j["fec_enabled"]       = fec_enabled;
     j["fec_code_rate"]     = code_rate_to_string(fec_code_rate);
+    j["acquisition_symbols"] = acquisition_symbols;
+    j["ramp_symbols"]      = ramp_symbols;
 
     std::ofstream ofs(path);
     if (!ofs.is_open()) {
@@ -288,6 +306,20 @@ Config Config::from_json(const std::string& path) {
                [](const nlohmann::json& v) { return v.is_string(); });
     cfg.fec_code_rate = string_to_code_rate(
         j["fec_code_rate"].get<std::string>());
+
+    // acquisition_symbols (optional, defaults to 128)
+    if (j.contains("acquisition_symbols")) {
+        check_type("acquisition_symbols", "an integer",
+                   [](const nlohmann::json& v) { return v.is_number_integer(); });
+        cfg.acquisition_symbols = j["acquisition_symbols"].get<int>();
+    }
+
+    // ramp_symbols (optional, defaults to 8)
+    if (j.contains("ramp_symbols")) {
+        check_type("ramp_symbols", "an integer",
+                   [](const nlohmann::json& v) { return v.is_number_integer(); });
+        cfg.ramp_symbols = j["ramp_symbols"].get<int>();
+    }
 
     // Validate the loaded configuration
     cfg.validate();

@@ -1,0 +1,2 @@
+## IPN routing — all traffic goes out via STCP to LTP CLA
+a plan 1 stcp/127.0.0.1:4556

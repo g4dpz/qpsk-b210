@@ -32,6 +32,32 @@ bpsk_map_preamble(const std::vector<uint8_t>& preamble_bits) {
     return symbols;
 }
 
+/// Generate acquisition sequence: alternating QPSK symbols for carrier and
+/// timing recovery convergence. Pattern: (+1+j, +1-j, -1-j, -1+j) / sqrt(2).
+/// This provides constant-envelope transitions that exercise all four quadrants,
+/// ideal for both Costas loop and Gardner TED lock.
+std::vector<std::complex<float>>
+generate_acquisition_symbols(int count) {
+    static constexpr float S = 0.7071067811865475f; // 1/sqrt(2)
+    static const std::complex<float> pattern[4] = {
+        { S,  S},   // +1+j / sqrt(2)
+        { S, -S},   // +1-j / sqrt(2)
+        {-S, -S},   // -1-j / sqrt(2)
+        {-S,  S}    // -1+j / sqrt(2)
+    };
+
+    std::vector<std::complex<float>> symbols;
+    symbols.reserve(static_cast<size_t>(count));
+    for (int i = 0; i < count; ++i) {
+        symbols.push_back(pattern[i % 4]);
+    }
+    return symbols;
+}
+
+/// Number of zero-valued tail symbols appended after data to flush the
+/// convolutional encoder's shift register.
+constexpr int TAIL_SYMBOLS = 6;
+
 } // anonymous namespace
 
 // ---------------------------------------------------------------------------
@@ -124,25 +150,41 @@ Encoder::encode(const std::vector<uint8_t>& payload) {
     // --- Step 5: QPSK-map data bits ---
     auto [data_symbols, padding] = SymbolMapper::map(data_bits);
 
-    // --- Step 6: Concatenate ---
+    // --- Step 6: Generate acquisition sequence ---
+    auto acquisition_symbols = generate_acquisition_symbols(config_.acquisition_symbols);
+
+    // --- Step 7: Generate tail symbols (zero-valued flush for conv encoder) ---
+    std::vector<std::complex<float>> tail_symbols(TAIL_SYMBOLS, {0.0f, 0.0f});
+
+    // --- Step 8: Concatenate: [acquisition] [preamble] [data] [tail] ---
     std::vector<std::complex<float>> all_symbols;
-    all_symbols.reserve(preamble_symbols.size() + data_symbols.size());
+    all_symbols.reserve(acquisition_symbols.size() +
+                        preamble_symbols.size() +
+                        data_symbols.size() +
+                        tail_symbols.size());
+    all_symbols.insert(all_symbols.end(),
+                       acquisition_symbols.begin(), acquisition_symbols.end());
     all_symbols.insert(all_symbols.end(),
                        preamble_symbols.begin(), preamble_symbols.end());
     all_symbols.insert(all_symbols.end(),
                        data_symbols.begin(), data_symbols.end());
+    all_symbols.insert(all_symbols.end(),
+                       tail_symbols.begin(), tail_symbols.end());
 
-    // --- Step 7: Pulse-shape ---
+    // --- Step 9: Pulse-shape ---
     auto samples = shaper_.shape(all_symbols);
 
-    // --- Step 8: Update diagnostics ---
+    // --- Step 10: Update diagnostics ---
     diag_.frames_transmitted++;
     diag_.symbols_transmitted += all_symbols.size();
 
-    spdlog::debug("Encoder: frame {} transmitted, {} symbols ({} preamble + {} data), "
+    spdlog::debug("Encoder: frame {} transmitted, {} symbols "
+                  "({} acquisition + {} preamble + {} data + {} tail), "
                   "{} samples",
                   diag_.frames_transmitted, all_symbols.size(),
+                  acquisition_symbols.size(),
                   preamble_symbols.size(), data_symbols.size(),
+                  tail_symbols.size(),
                   samples.size());
 
     return samples;

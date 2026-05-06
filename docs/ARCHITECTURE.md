@@ -16,19 +16,22 @@ Full-duplex operation is achieved using Frequency Division Duplex (FDD) with L-b
 │     Bundle Protocol v7 (BPv7)       │
 │          ION-DTN daemon             │
 ├─────────────────────────────────────┤
-│   Convergence Layer (STCP/TCP)      │
-│   4-byte length-prefix framing      │
-├─────────────────────────────────────┤
 │  Licklider Transmission Protocol    │
-│         ltp_cla_app                 │
+│     ION-DTN ltpclo / ltpcli         │
+├─────────────────────────────────────┤
+│         UDP transport               │
+│   (ION ↔ modem interface)           │
 ├─────────────────────────────────────┤
 │      QPSK Physical Layer            │
 │        qpsk_b200_app                │
+│   (burst modem — dumb pipe)         │
 ├─────────────────────────────────────┤
 │     Ettus B200 / B210 SDR           │
 │   L-band TX / S-band RX (FDD)      │
 └─────────────────────────────────────┘
 ```
+
+The `qpsk_b200_app` operates as a transparent burst modem (analogous to a Safran CTX or similar ground station modem). ION-DTN handles all protocol processing — the modem simply modulates UDP datagrams to RF bursts and demodulates received bursts back to UDP datagrams.
 
 ## Full-Duplex FDD Operation
 
@@ -80,10 +83,13 @@ The physical layer modem. Accepts raw byte payloads via TCP, modulates them to Q
 
 **TX Pipeline:**
 ```
-TCP input (:5000) → Frame builder (preamble + header + CRC)
+TCP/UDP input → Frame builder (preamble + header + CRC)
     → FEC encoder (rate 1/2 or 3/4 convolutional)
     → QPSK symbol mapper (Gray-coded)
+    → Acquisition sequence prepend (128 training symbols)
+    → Tail symbols append (6 flush symbols)
     → RRC pulse shaper (α=0.35, 4 sps)
+    → Amplitude ramp-up/ramp-down (8 symbols)
     → B200 TX streamer → RF antenna (L-band or S-band)
 ```
 
@@ -91,13 +97,13 @@ TCP input (:5000) → Frame builder (preamble + header + CRC)
 ```
 RF antenna (S-band or L-band) → B200 RX streamer
     → RRC matched filter
-    → Carrier synchronization (Costas loop)
-    → Timing recovery (Gardner TED)
+    → Carrier synchronization (Costas loop, locks during acquisition sequence)
+    → Timing recovery (Gardner TED, locks during acquisition sequence)
     → Frame synchronization (Barker preamble correlation)
     → QPSK demapper
     → FEC decoder
     → CRC verification
-    → TCP output (:5001)
+    → TCP/UDP output
 ```
 
 **Key Parameters:**
@@ -113,9 +119,26 @@ RF antenna (S-band or L-band) → B200 RX streamer
 | Pulse shaping | Root Raised Cosine, α=0.35 |
 | FEC | Rate 1/2 convolutional (default) |
 | Frame preamble | 26-bit doubled Barker-13 |
+| Acquisition sequence | 128 alternating QPSK symbols |
+| Tail symbols | 6 (encoder flush) |
+| Amplitude ramp | 8 symbols up/down |
 | CRC | CRC-32 |
 | Data rate (raw) | 500 kbps (QPSK, 2 bits/symbol) |
 | Data rate (with FEC 1/2) | ~250 kbps effective |
+
+**Burst Structure:**
+```
+┌────────┬──────────────┬────────────┬────────┬─────────────┬─────┬──────┬──────────┐
+│Ramp-up │ Acquisition  │ Barker ASM │ Header │ Payload+FEC │ CRC │ Tail │Ramp-down │
+│8 sym   │ 128 symbols  │ 26 symbols │ 35 bits│ variable    │32bit│6 sym │ 8 sym    │
+└────────┴──────────────┴────────────┴────────┴─────────────┴─────┴──────┴──────────┘
+         │← carrier/timing recovery →│← frame sync →│← data demodulation →│
+```
+
+- **Ramp-up/down**: Linear amplitude envelope to avoid spectral splatter at burst edges
+- **Acquisition sequence**: Alternating QPSK pattern (+1+j, +1-j, -1-j, -1+j)/√2 cycling through all quadrants — provides the Costas loop and Gardner TED with a known signal to lock onto before the frame sync word arrives
+- **Barker ASM**: Attached Sync Marker (doubled Barker-13) for frame boundary detection
+- **Tail symbols**: Zero-valued symbols to flush the convolutional encoder shift register, ensuring the last data bits are properly FEC-protected
 
 **CLI Options:**
 ```
@@ -131,6 +154,11 @@ RF antenna (S-band or L-band) → B200 RX streamer
 --fec-code-rate      "1/2" or "3/4"
 --tcp-input-port     TCP port for TX data input
 --tcp-output-port    TCP port for RX data output
+--udp                Use UDP mode (for ION-DTN LTP direct integration)
+--udp-input-port     UDP port for TX data input (default: 1113)
+--udp-output-port    UDP port for RX data output (default: 1114)
+--acquisition-symbols  Training symbols before sync word (default: 128)
+--ramp-symbols       Amplitude ramp symbols (default: 8)
 ```
 
 ### ltp_cla_app — LTP Convergence Layer Adapter
@@ -189,22 +217,27 @@ Node A (engine 1)                    Node B (engine 2)
 
 ### ION-DTN — Bundle Protocol Agent
 
-JPL's Interplanetary Overlay Network implementation provides the BPv7 bundle agent. It handles bundle creation, routing, custody transfer, and delivery.
+JPL's Interplanetary Overlay Network implementation provides the BPv7 bundle agent and LTP engine. It handles bundle creation, routing, custody transfer, LTP segmentation, retransmission, and delivery.
 
-**Integration:** ION connects to the LTP CLA via STCP (Simple TCP) convergence layer, which uses the same 4-byte big-endian length-prefix framing as the LTP CLA ingress/egress ports.
+**Integration:** ION's `udpclo` sends LTP segments as UDP datagrams to the QPSK modem's input port (default 1113). ION's `udpcli` receives decoded LTP segments from the modem's output port (default 1114). The modem is transparent — ION sees it as a UDP link with variable latency.
+
+**ION LTP configuration example:**
+```
+# ltpadmin: configure LTP span to use UDP via the QPSK modem
+a span <remote_engine_id> <max_segment_size> <agg_size_limit> <agg_time_limit> \
+    'udplso localhost:1113' 'udplsi localhost:1114'
+```
 
 ## Two-Node FDD Deployment
 
 ```
 ┌──────────── Node A (Ground Station) ─────────┐     ┌──────────── Node B (Remote) ──────────────┐
 │                                                │     │                                           │
-│  ION bpsource (ipn:1.1)                       │     │  ION bpsink (ipn:2.1)                     │
-│       ↓ STCP                                   │     │       ↑ STCP                              │
-│  ltp_cla_app (engine_id=1)                     │     │  ltp_cla_app (engine_id=2)                │
-│    ingress:4556 / egress:4557                  │     │    ingress:4559 / egress:4557             │
-│       ↓↑ TCP                                   │     │       ↓↑ TCP                             │
-│  qpsk_b200_app --mode txrx                     │     │  qpsk_b200_app --mode txrx               │
-│    --tx-freq 1280e6 --rx-freq 2400e6           │     │    --tx-freq 2400e6 --rx-freq 1280e6     │
+│  ION-DTN (BPv7 + LTP)                         │     │  ION-DTN (BPv7 + LTP)                     │
+│    bpsource / bpsink                           │     │    bpsource / bpsink                      │
+│       ↓↑ UDP :1113/:1114                       │     │       ↓↑ UDP :1113/:1114                  │
+│  qpsk_b200_app --udp                           │     │  qpsk_b200_app --udp                      │
+│    --tx-freq 1280e6 --rx-freq 2400e6           │     │    --tx-freq 2400e6 --rx-freq 1280e6      │
 │       ↓                    ↑                   │     │       ↓                    ↑              │
 │  TX antenna          RX antenna                │     │  TX antenna          RX antenna           │
 │  (L-band)            (S-band)                  │     │  (S-band)            (L-band)             │
@@ -217,6 +250,8 @@ JPL's Interplanetary Overlay Network implementation provides the BPv7 bundle age
                              └──────────────────────────────────┘
                                     RF propagation
 ```
+
+Each UDP datagram from ION's `udpclo` (one LTP segment) maps to exactly one QPSK RF burst. Each decoded burst is delivered as one UDP datagram to ION's `udpcli`. No intermediate protocol processing — the modem is a transparent pipe.
 
 ## Single-Device Loopback (Test Mode)
 
@@ -248,22 +283,25 @@ For development and testing, a single B200mini with an SMA cable connecting TX/R
 Sending "Hello DTN World" from Node A to Node B with reliable (red) LTP:
 
 1. **Application** → `bpsource ipn:2.1` creates a BPv7 bundle
-2. **ION BP** → routes bundle to STCP outduct connected to LTP CLA ingress
-3. **LTP CLA ingress** → receives bundle bytes via TCP with length-prefix framing
-4. **LTP engine** → creates session, segments data, encodes LTP data segment with checkpoint
-5. **CLA TX** → frames LTP segment, sends to QPSK radio TCP input
-6. **QPSK TX** → builds frame (preamble + header + FEC payload + CRC), modulates, transmits on **L-band (1280 MHz)**
+2. **ION BP** → routes bundle to LTP outduct
+3. **ION LTP** → creates session, segments data, encodes LTP segment
+4. **ION udpclo** → sends LTP segment as UDP datagram to `localhost:1113`
+5. **QPSK modem (UDP input)** → receives datagram, enqueues for TX
+6. **QPSK TX** → builds burst: [ramp-up] [128 acquisition symbols] [Barker ASM] [header] [FEC payload] [CRC] [tail] [ramp-down], QPSK modulates, pulse shapes, transmits on **L-band (1280 MHz)**
 7. **RF propagation** → L-band signal travels to Node B
-8. **QPSK RX (Node B)** → receives on L-band, matched filter, carrier/timing recovery, frame sync, FEC decode
-9. **LTP engine (Node B)** → reassembles data, generates report segment
-10. **QPSK TX (Node B)** → transmits report on **S-band (2400 MHz)**
-11. **RF propagation** → S-band signal travels back to Node A
-12. **QPSK RX (Node A)** → receives report on S-band, decodes
-13. **LTP engine (Node A)** → processes report, sends report-ack on L-band, marks session complete
-14. **LTP engine (Node B)** → receives report-ack, delivers data to egress
-15. **LTP CLA egress (Node B)** → delivers reassembled bundle to ION via TCP
-16. **ION BP (Node B)** → receives bundle, delivers to `bpsink`
-17. **Application** → "Hello DTN World" received
+8. **QPSK RX (Node B)** → receives on L-band, matched filter, carrier sync locks during acquisition sequence, timing recovery converges, Barker frame sync detects ASM, FEC decode, CRC verify
+9. **QPSK modem (UDP output)** → sends decoded payload as UDP datagram to `localhost:1114`
+10. **ION udpcli (Node B)** → receives LTP segment
+11. **ION LTP (Node B)** → reassembles data, generates report segment
+12. **ION udpclo (Node B)** → sends report as UDP datagram to modem
+13. **QPSK TX (Node B)** → transmits report burst on **S-band (2400 MHz)**
+14. **RF propagation** → S-band signal travels back to Node A
+15. **QPSK RX (Node A)** → receives report on S-band, decodes
+16. **ION udpcli (Node A)** → receives report segment
+17. **ION LTP (Node A)** → processes report, sends report-ack, marks session complete
+18. **ION LTP (Node B)** → receives report-ack, delivers data to BP
+19. **ION BP (Node B)** → delivers bundle to `bpsink`
+20. **Application** → "Hello DTN World" received
 
 ## Build and Run
 
@@ -273,37 +311,28 @@ mkdir build && cd build
 cmake .. -DQPSK_ENABLE_UHD=ON
 cmake --build . -j$(nproc)
 
-# Two-node FDD deployment
+# Two-node FDD deployment (ION-DTN handles LTP, modem is a dumb pipe)
 # Node A (ground):
 ./build/src/qpsk_b200_app --mode txrx --serial <nodeA> \
+    --udp --udp-input-port 1113 --udp-output-port 1114 \
     --tx-freq 1280e6 --rx-freq 2400e6 \
-    --sample-rate 1e6 --tx-gain 10 --rx-gain 30 --fec-enabled 1
-
-./build/src/ltp_cla/ltp_cla_app \
-    --ltp.local_engine_id=1 --ltp.remote_engine_id=2 \
-    --cla.tx_port=5000 --cla.rx_port=5001 \
-    --ingress.port=4556 --egress.port=4557
+    --sample-rate 1e6 --tx-gain 10 --rx-gain 30 --fec-enabled 1 \
+    --acquisition-symbols 128 --ramp-symbols 8
 
 # Node B (remote):
 ./build/src/qpsk_b200_app --mode txrx --serial <nodeB> \
+    --udp --udp-input-port 1113 --udp-output-port 1114 \
     --tx-freq 2400e6 --rx-freq 1280e6 \
-    --sample-rate 1e6 --tx-gain 10 --rx-gain 30 --fec-enabled 1
+    --sample-rate 1e6 --tx-gain 10 --rx-gain 30 --fec-enabled 1 \
+    --acquisition-symbols 128 --ramp-symbols 8
 
-./build/src/ltp_cla/ltp_cla_app \
-    --ltp.local_engine_id=2 --ltp.remote_engine_id=1 \
-    --cla.tx_port=5000 --cla.rx_port=5001 \
-    --ingress.port=4559 --egress.port=4557
+# ION-DTN configuration points udpclo at localhost:1113 (modem TX input)
+# and udpcli listens on localhost:1114 (modem RX output)
 
-# Single-device loopback test (simplex, green LTP):
+# Single-device loopback test (simplex, TCP mode):
 ./build/src/qpsk_b200_app --mode txrx --serial 3218030 \
     --center-freq 915e6 --sample-rate 1e6 \
     --tx-gain 10 --rx-gain 30 --fec-enabled 1
-
-./build/src/ltp_cla/ltp_cla_app \
-    --ltp.local_engine_id=1 --ltp.remote_engine_id=2 \
-    --cla.tx_port=5000 --cla.rx_port=5001 \
-    --ingress.port=4556 --egress.port=4557 \
-    --ingress.default_reliable=false
 ```
 
 ## Link Budget Considerations
