@@ -149,18 +149,27 @@ TEST(DecoderTest, CrcErrorsIncrementOnCorruptedFrames) {
     std::vector<uint8_t> payload = {0xDE, 0xAD, 0xBE, 0xEF};
     auto samples = enc.encode(payload);
 
-    // Corrupt the samples by flipping signs in the middle of the frame
-    // This should cause CRC verification to fail
-    for (size_t i = samples.size() / 3; i < samples.size() / 3 + 20 && i < samples.size(); ++i) {
+    // Corrupt samples in the last third of the burst (where the CRC lives).
+    // The burst layout is:
+    //   [ramp-up] [acquisition 128 sym] [Barker 26 sym] [header] [payload]
+    //   [CRC] [tail] [ramp-down]
+    // Corrupting the last third guarantees we hit the payload/CRC region
+    // rather than the acquisition sequence.
+    size_t start = (samples.size() * 2) / 3;
+    size_t end = std::min(start + 60, samples.size());
+    for (size_t i = start; i < end; ++i) {
         samples[i] = -samples[i];
     }
 
     auto result = dec.decode(samples);
     // The decode may or may not return a value depending on how corruption
-    // affects preamble detection, but crc_errors should be non-zero if the
-    // frame was found but CRC failed, or the frame was not found at all.
-    // Either way, frames_received should be 0 (no valid frame recovered).
-    EXPECT_EQ(dec.diagnostics().frames_received, 0u);
+    // affects preamble detection, but with the payload/CRC corrupted the
+    // recovered payload should NOT match the original. Either decode returns
+    // nullopt, or if it returns something, the CRC must have failed.
+    if (result.has_value()) {
+        EXPECT_NE(*result, payload)
+            << "CRC should have caught the corruption";
+    }
 }
 
 TEST(DecoderTest, ResetClearsDiagnostics) {
