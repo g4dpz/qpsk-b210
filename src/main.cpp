@@ -55,6 +55,8 @@ static void print_usage(const char* prog) {
         << "  --mode <tx|rx|txrx>     Operating mode (default: txrx)\n"
         << "  --serial <serial>       B200 device serial number\n"
         << "  --center-freq <Hz>      Center frequency (default: 2.4e9)\n"
+        << "  --tx-freq <Hz>          TX frequency (overrides center-freq for TX)\n"
+        << "  --rx-freq <Hz>          RX frequency (overrides center-freq for RX)\n"
         << "  --sample-rate <Hz>      Sample rate (default: 1e6)\n"
         << "  --tx-gain <dB>          Transmit gain (default: 40)\n"
         << "  --rx-gain <dB>          Receive gain (default: 40)\n"
@@ -110,6 +112,10 @@ static AppOptions parse_args(int argc, char* argv[]) {
             opts.config.device_serial = val;
         } else if (arg == "--center-freq") {
             opts.config.center_freq = std::stod(val);
+        } else if (arg == "--tx-freq") {
+            opts.config.tx_freq = std::stod(val);
+        } else if (arg == "--rx-freq") {
+            opts.config.rx_freq = std::stod(val);
         } else if (arg == "--sample-rate") {
             opts.config.sample_rate = std::stod(val);
         } else if (arg == "--tx-gain") {
@@ -429,7 +435,8 @@ int main(int argc, char* argv[]) {
     if (!cfg.device_serial.empty()) {
         spdlog::info("  Device      : serial={}", cfg.device_serial);
     }
-    spdlog::info("  Center freq : {:.3f} MHz", cfg.center_freq / 1e6);
+    spdlog::info("  TX freq     : {:.3f} MHz", cfg.effective_tx_freq() / 1e6);
+    spdlog::info("  RX freq     : {:.3f} MHz", cfg.effective_rx_freq() / 1e6);
     spdlog::info("  Sample rate : {:.3f} MSPS", cfg.sample_rate / 1e6);
     spdlog::info("  TX gain     : {:.1f} dB", cfg.tx_gain);
     spdlog::info("  RX gain     : {:.1f} dB", cfg.rx_gain);
