@@ -1,4 +1,5 @@
 ## IPN routing for Node B
 ## All traffic to node 1 goes via LTP engine 1 outduct
+## Rate limit: 200000 bps (matches ~200 kbps usable QPSK throughput)
 
-a plan 1 ltp/1
+a plan 1 ltp/1 200000

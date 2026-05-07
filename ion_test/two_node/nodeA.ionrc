@@ -2,9 +2,9 @@
 
 1 1 ''
 
-## Contact plan: node 1 ↔ node 2, available now for 24 hours, 100 kbps
-a contact +0 +86400 1 2 100000
-a contact +0 +86400 2 1 100000
+## Contact plan: node 1 ↔ node 2, available now for 24 hours, 200 kbps
+a contact +0 +86400 1 2 200000
+a contact +0 +86400 2 1 200000
 
 ## Range (one-way light time): 1 second between nodes
 a range +0 +86400 1 2 1
