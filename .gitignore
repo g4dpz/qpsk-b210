@@ -24,3 +24,8 @@ cmake-build-*/
 
 # External dependencies
 ION-DTN
+
+# ION-DTN runtime files
+ion.log
+*.ionsdrlog
+ion_nodes
