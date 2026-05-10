@@ -1,4 +1,0 @@
-## IPN routing for node 1
-## All traffic to node 2 goes via STCP outduct to ltp_cla_app
-
-a plan 2 stcp/127.0.0.1:4556

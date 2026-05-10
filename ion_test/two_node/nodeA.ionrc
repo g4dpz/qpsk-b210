@@ -1,0 +1,13 @@
+## ION initialization for Node A (ground station, engine ID 1)
+
+1 1 ''
+
+## Contact plan: node 1 ↔ node 2, available now for 24 hours, 200 kbps
+a contact +0 +86400 1 2 200000
+a contact +0 +86400 2 1 200000
+
+## Range (one-way light time): 1 second between nodes
+a range +0 +86400 1 2 1
+a range +0 +86400 2 1 1
+
+s

@@ -22,6 +22,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <complex>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
@@ -339,24 +341,16 @@ static void tx_thread_fn(
     spdlog::info("TX thread stopped");
 }
 
-/// RX thread: receives samples from B200, decodes, enqueues to TCP output queue.
-static void rx_thread_fn(
-    qpsk_b200::Decoder& decoder,
+/// RX receive thread: pulls samples from B200 into a ring buffer.
+/// This thread MUST NOT do any processing — just recv and store.
+static void rx_recv_thread_fn(
     qpsk_b200::B200Interface& b200,
-    qpsk_b200::SpscQueue<std::vector<uint8_t>>& rx_to_tcp,
+    qpsk_b200::SpscQueue<std::vector<std::complex<float>>>& sample_queue,
     const std::atomic<bool>& running)
 {
-    spdlog::info("RX thread started");
+    spdlog::info("RX recv thread started");
 
     constexpr size_t RX_BATCH_SIZE = 4096;
-    // Only attempt decode when we have at least this many new samples
-    // (avoids wasting CPU on tiny noise-only buffers)
-    constexpr size_t MIN_DECODE_SAMPLES = 16384;
-    constexpr size_t MAX_BUFFER_SIZE = 262144;
-
-    std::vector<std::complex<float>> rx_buffer;
-    rx_buffer.reserve(MAX_BUFFER_SIZE);
-    size_t samples_since_last_decode = 0;
 
     try {
         b200.start_rx_stream();
@@ -366,7 +360,7 @@ static void rx_thread_fn(
         while (running.load(std::memory_order_acquire)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        spdlog::info("RX thread stopped (no UHD)");
+        spdlog::info("RX recv thread stopped (no UHD)");
         return;
     }
 
@@ -383,18 +377,82 @@ static void rx_thread_fn(
 
             if (samples.empty()) continue;
 
-            rx_buffer.insert(rx_buffer.end(), samples.begin(), samples.end());
-            samples_since_last_decode += samples.size();
+            if (!sample_queue.try_push(std::move(samples))) {
+                spdlog::warn("RX sample queue full: dropped {} sample batch",
+                             RX_BATCH_SIZE);
+            }
+        }
+    } catch (const std::exception& e) {
+        spdlog::error("RX recv thread error: {}", e.what());
+    }
 
-            // Only attempt decode when we have enough new samples
-            if (samples_since_last_decode < MIN_DECODE_SAMPLES) {
+    try {
+        b200.stop_rx_stream();
+    } catch (const std::runtime_error&) {}
+
+    spdlog::info("RX recv thread stopped");
+}
+
+/// RX decode thread: pulls sample batches from the queue, accumulates,
+/// and runs the decode pipeline.
+static void rx_decode_thread_fn(
+    qpsk_b200::Decoder& decoder,
+    qpsk_b200::SpscQueue<std::vector<std::complex<float>>>& sample_queue,
+    qpsk_b200::SpscQueue<std::vector<uint8_t>>& rx_to_tcp,
+    const std::atomic<bool>& running)
+{
+    spdlog::info("RX decode thread started");
+
+    constexpr size_t MIN_DECODE_SAMPLES = 16384;
+    constexpr size_t MAX_BUFFER_SIZE = 262144;
+
+    std::vector<std::complex<float>> rx_buffer;
+    rx_buffer.reserve(MAX_BUFFER_SIZE);
+
+    try {
+        while (running.load(std::memory_order_acquire)) {
+            // Drain all available batches from the sample queue
+            std::vector<std::complex<float>> batch;
+            bool got_any = false;
+            while (sample_queue.try_pop(batch)) {
+                rx_buffer.insert(rx_buffer.end(), batch.begin(), batch.end());
+                got_any = true;
+            }
+
+            if (!got_any) {
+                // No samples available — sleep briefly and retry
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                continue;
+            }
+
+            // Only attempt decode when we have enough samples
+            if (rx_buffer.size() < MIN_DECODE_SAMPLES) {
+                continue;
+            }
+
+            // Compute RMS power of the buffer
+            float energy = 0.0f;
+            for (const auto& s : rx_buffer) {
+                energy += std::norm(s);  // |s|^2
+            }
+            float rms = std::sqrt(energy / static_cast<float>(rx_buffer.size()));
+
+            // Skip decode if signal is below noise threshold
+            // A QPSK signal with gain should have RMS > 0.01 (adjustable)
+            constexpr float ENERGY_THRESHOLD = 0.005f;
+            if (rms < ENERGY_THRESHOLD) {
+                // Just noise — trim buffer and skip expensive decode
+                if (rx_buffer.size() > MAX_BUFFER_SIZE) {
+                    size_t discard = rx_buffer.size() - MAX_BUFFER_SIZE / 2;
+                    rx_buffer.erase(rx_buffer.begin(),
+                                    rx_buffer.begin() + static_cast<long>(discard));
+                }
                 continue;
             }
 
             // Reset decoder state before each attempt for clean sync
             decoder.reset();
             auto decoded = decoder.decode(rx_buffer);
-            samples_since_last_decode = 0;
 
             if (decoded.has_value() && !decoded->empty()) {
                 spdlog::info("RX: decoded {} bytes!", decoded->size());
@@ -412,14 +470,10 @@ static void rx_thread_fn(
             }
         }
     } catch (const std::exception& e) {
-        spdlog::error("RX thread error: {}", e.what());
+        spdlog::error("RX decode thread error: {}", e.what());
     }
 
-    try {
-        b200.stop_rx_stream();
-    } catch (const std::runtime_error&) {}
-
-    spdlog::info("RX thread stopped");
+    spdlog::info("RX decode thread stopped");
 }
 
 /// TCP Output thread: dequeues decoded payloads, writes to all connected clients.
@@ -651,13 +705,16 @@ int main(int argc, char* argv[]) {
     // ---- Create SPSC queues ----
     qpsk_b200::SpscQueue<std::vector<uint8_t>> input_to_tx(64);
     qpsk_b200::SpscQueue<std::vector<uint8_t>> rx_to_output(64);
+    // Sample queue between RX recv and decode threads (256 * 4096 ≈ 1M samples ≈ 1s at 1 MSPS)
+    qpsk_b200::SpscQueue<std::vector<std::complex<float>>> rx_sample_queue(256);
 
     // ---- Spawn worker threads ----
     spdlog::info("Spawning worker threads");
 
     std::thread input_thread;
     std::thread tx_thread;
-    std::thread rx_thread;
+    std::thread rx_recv_thread;
+    std::thread rx_decode_thread;
     std::thread output_thread;
 
     // TX path: input (TCP or UDP) → encoder → B200 TX
@@ -687,11 +744,15 @@ int main(int argc, char* argv[]) {
     // RX path: B200 RX → decoder → output (TCP or UDP)
     if (mode == AppMode::RX_ONLY || mode == AppMode::TX_RX) {
         if (b200) {
-            rx_thread = std::thread(rx_thread_fn,
-                                    std::ref(decoder),
-                                    std::ref(*b200),
-                                    std::ref(rx_to_output),
-                                    std::cref(g_running));
+            rx_recv_thread = std::thread(rx_recv_thread_fn,
+                                         std::ref(*b200),
+                                         std::ref(rx_sample_queue),
+                                         std::cref(g_running));
+            rx_decode_thread = std::thread(rx_decode_thread_fn,
+                                           std::ref(decoder),
+                                           std::ref(rx_sample_queue),
+                                           std::ref(rx_to_output),
+                                           std::cref(g_running));
         }
 
         if (cfg.use_udp) {
@@ -719,7 +780,8 @@ int main(int argc, char* argv[]) {
     // ---- Join all threads ----
     if (input_thread.joinable()) input_thread.join();
     if (tx_thread.joinable()) tx_thread.join();
-    if (rx_thread.joinable()) rx_thread.join();
+    if (rx_recv_thread.joinable()) rx_recv_thread.join();
+    if (rx_decode_thread.joinable()) rx_decode_thread.join();
     if (output_thread.joinable()) output_thread.join();
 
     // ---- Stop I/O layer ----

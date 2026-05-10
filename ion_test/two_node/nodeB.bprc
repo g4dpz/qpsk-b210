@@ -1,0 +1,16 @@
+## BP configuration for Node B (engine ID 2 = ipn:2.x)
+
+1
+
+a scheme ipn 'ipnfw' 'ipnadminep'
+
+a endpoint ipn:2.0 x
+a endpoint ipn:2.1 x
+a endpoint ipn:2.2 x
+
+a protocol ltp 1400 100
+
+a induct ltp 2 ltpcli
+a outduct ltp 1 ltpclo
+
+s
