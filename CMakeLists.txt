@@ -10,6 +10,24 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # --------------------------------------------------------------------------
+# Performance optimization flags
+# --------------------------------------------------------------------------
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR NOT CMAKE_BUILD_TYPE)
+    # Enable aggressive optimization and native architecture targeting
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
+    if(COMPILER_SUPPORTS_MARCH_NATIVE)
+        add_compile_options(-march=native)
+    endif()
+
+    # Enable fast math for DSP operations (safe for our use case)
+    check_cxx_compiler_flag("-ffast-math" COMPILER_SUPPORTS_FAST_MATH)
+    if(COMPILER_SUPPORTS_FAST_MATH)
+        add_compile_options(-ffast-math)
+    endif()
+endif()
+
+# --------------------------------------------------------------------------
 # Options
 # --------------------------------------------------------------------------
 option(QPSK_ENABLE_UHD    "Build with UHD (Ettus USRP Hardware Driver) support" ON)

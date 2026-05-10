@@ -22,6 +22,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
+#include <complex>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
@@ -425,6 +427,26 @@ static void rx_decode_thread_fn(
 
             // Only attempt decode when we have enough samples
             if (rx_buffer.size() < MIN_DECODE_SAMPLES) {
+                continue;
+            }
+
+            // Compute RMS power of the buffer
+            float energy = 0.0f;
+            for (const auto& s : rx_buffer) {
+                energy += std::norm(s);  // |s|^2
+            }
+            float rms = std::sqrt(energy / static_cast<float>(rx_buffer.size()));
+
+            // Skip decode if signal is below noise threshold
+            // A QPSK signal with gain should have RMS > 0.01 (adjustable)
+            constexpr float ENERGY_THRESHOLD = 0.005f;
+            if (rms < ENERGY_THRESHOLD) {
+                // Just noise — trim buffer and skip expensive decode
+                if (rx_buffer.size() > MAX_BUFFER_SIZE) {
+                    size_t discard = rx_buffer.size() - MAX_BUFFER_SIZE / 2;
+                    rx_buffer.erase(rx_buffer.begin(),
+                                    rx_buffer.begin() + static_cast<long>(discard));
+                }
                 continue;
             }
 
