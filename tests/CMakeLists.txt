@@ -1,0 +1,35 @@
+# One test executable per area, each registered with CTest. Add a new test with
+#   mpsk_add_test(<name> <source.cpp> [NO_DEFAULT_LIBS] [LIBS <libs>...])
+# By default the simulation and link libraries (and through them the DSP
+# library) are linked into every test. A library named both directly and
+# transitively makes the linker warn about duplicates, so a test that needs
+# mpsk_radio (which already brings in mpsk_link and mpsk_dsp) passes
+# NO_DEFAULT_LIBS and lists what it needs.
+
+function(mpsk_add_test name source)
+  cmake_parse_arguments(ARG "NO_DEFAULT_LIBS" "" "LIBS" ${ARGN})
+  add_executable(${name} ${source})
+  target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  target_link_libraries(${name} PRIVATE mpsk_warnings ${ARG_LIBS})
+  if(NOT ARG_NO_DEFAULT_LIBS)
+    target_link_libraries(${name} PRIVATE mpsk_sim mpsk_link)
+  endif()
+  add_test(NAME ${name} COMMAND ${name})
+endfunction()
+
+mpsk_add_test(test_scaffold test_scaffold.cpp)
+mpsk_add_test(test_constellation test_constellation.cpp)
+mpsk_add_test(test_bits_crc test_bits_crc.cpp)
+mpsk_add_test(test_prbs_scrambler test_prbs_scrambler.cpp)
+mpsk_add_test(test_rrc test_rrc.cpp)
+mpsk_add_test(test_fir test_fir.cpp)
+mpsk_add_test(test_pulse_shaping test_pulse_shaping.cpp)
+mpsk_add_test(test_preamble test_preamble.cpp)
+mpsk_add_test(test_framer test_framer.cpp)
+mpsk_add_test(test_modulator test_modulator.cpp)
+mpsk_add_test(test_io test_io.cpp LIBS mpsk_io)
+
+if(MPSK_WITH_UHD)
+  mpsk_add_test(test_uhd_consistency test_uhd_consistency.cpp
+                NO_DEFAULT_LIBS LIBS mpsk_radio)
+endif()
