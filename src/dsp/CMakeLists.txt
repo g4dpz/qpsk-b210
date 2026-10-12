@@ -3,13 +3,17 @@ add_library(mpsk_dsp STATIC
   bits.cpp
   constellation.cpp
   crc.cpp
+  dc_blocker.cpp
   fir.cpp
   framer.cpp
+  interpolator.cpp
   lfsr.cpp
   modulator.cpp
   preamble.cpp
+  preamble_detector.cpp
   prbs.cpp
   rrc.cpp
+  rx_frontend.cpp
   scrambler.cpp
   version.cpp)
 

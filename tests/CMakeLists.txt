@@ -33,3 +33,7 @@ if(MPSK_WITH_UHD)
   mpsk_add_test(test_uhd_consistency test_uhd_consistency.cpp
                 NO_DEFAULT_LIBS LIBS mpsk_radio)
 endif()
+mpsk_add_test(test_dc_blocker test_dc_blocker.cpp)
+mpsk_add_test(test_channel_ops test_channel_ops.cpp)
+mpsk_add_test(test_rx_frontend test_rx_frontend.cpp)
+mpsk_add_test(test_preamble_detector test_preamble_detector.cpp)

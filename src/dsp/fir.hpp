@@ -54,6 +54,9 @@ class FirFilter {
   /** @return The number of taps N. */
   std::size_t num_taps() const { return taps_.size(); }
 
+  /** @return The filter coefficients, h[0] first. */
+  const std::vector<float>& taps() const { return taps_; }
+
   /**
    * Group delay in samples, (N - 1) / 2. This is exact for symmetric taps such
    * as an RRC filter, which have linear phase.

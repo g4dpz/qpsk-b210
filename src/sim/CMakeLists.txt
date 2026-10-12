@@ -1,5 +1,6 @@
 # Channel model and simulated radio. Depends only on the DSP library.
 add_library(mpsk_sim STATIC
+  channel_ops.cpp
   sim_info.cpp)
 
 target_include_directories(mpsk_sim PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/..)

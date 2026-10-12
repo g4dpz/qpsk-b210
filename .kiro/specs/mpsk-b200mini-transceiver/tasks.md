@@ -44,14 +44,14 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
   - Unit test: a frame has the expected length and peak level, and a file write/read round trip is exact.
   - _Requirements: 2.1, 2.2, 2.7, 3.8_
 
-- [ ] 6. Receive front end: detection and estimation
-  - [ ] 6.1 Implement the DC blocker and the RRC matched filter stage. The DC blocker must initialise from the first sample after a reset, not from zero (a zero start leaves 76% of a DC offset across the first 2.7 ms frame; see the design). Test a reset followed immediately by a frame carrying a DC offset.
+- [x] 6. Receive front end: detection and estimation
+  - [x] 6.1 Implement the DC blocker and the RRC matched filter stage. The DC blocker must prime from the mean of the first 256 samples after a reset, not from zero (leaves 76% of a DC offset across the first 2.7 ms frame) and not from a single sample (adds noise, up to 6 dB on a short record); see the design. Test a reset followed immediately by a frame carrying a DC offset.
     - _Requirements: 3.1, 3.2_
-  - [ ] 6.2 Implement the carrier-offset-tolerant preamble detector: four 16-symbol partial correlations combined non-coherently and normalized by received energy, with a configurable threshold and peak search. Set the default threshold with two measured figures in mind: sidelobes of the statistic reach about 0.14 of the peak, and the peak itself drops 3.9 dB at the +-7.8 kHz edge of the acquisition range.
+  - [x] 6.2 Implement the carrier-offset-tolerant preamble detector: four 16-symbol partial correlations combined non-coherently and normalized by received energy, with a configurable threshold and peak search, followed by a coherent verification stage (one threshold on the non-coherent statistic cannot both catch the edge of the frequency range and stay quiet on noise). Set the default threshold with two measured figures in mind: sidelobes of the statistic reach about 0.14 of the peak, and the peak itself drops 3.9 dB at the +-7.8 kHz edge of the acquisition range.
     - _Requirements: 3.5, 9.1, 9.3, 9.6_
-  - [ ] 6.3 Implement the preamble estimators: Luise-Reggiannini frequency estimate (limit ±Rs/32), parabolic fractional timing, and absolute phase and amplitude from the coherent peak.
+  - [x] 6.3 Implement the preamble estimators: Luise-Reggiannini frequency estimate (limit ±Rs/32), parabolic fractional timing, and absolute phase and amplitude from the coherent peak.
     - _Requirements: 3.3, 3.4, 3.6, 7.3, 7.4, 9.4_
-  - [ ] 6.4 Unit tests: with a known offset, delay, and phase, the estimates land within tolerance; the detector works across a 40 dB level range and at offsets up to the edge of the acquisition range; the false-alarm count on pure noise stays below the target at the default threshold.
+  - [x] 6.4 Unit tests: with a known offset, delay, and phase, the estimates land within tolerance; the detector works across a 40 dB level range and at offsets up to the edge of the acquisition range; the false-alarm count on pure noise stays below the target at the default threshold.
     - _Requirements: 9.3, 9.6, 10.6_
 
 - [ ] 7. Receive back end: tracking, demodulation, metrics
