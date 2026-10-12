@@ -77,11 +77,13 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
+      # UHD's public headers include Boost headers, and libuhd-dev does not
+      # pull them in when recommended packages are skipped, so ask for them.
       - name: Install UHD (Linux, apt)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libuhd-dev uhd-host
+          sudo apt-get install -y --no-install-recommends libuhd-dev libboost-dev
 
       - name: Install UHD (macOS, Homebrew)
         if: runner.os == 'macOS'
