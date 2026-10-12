@@ -13,7 +13,7 @@ with `git checkout origin/main -- <path>`.
 
 This is not usable as a radio yet. Nothing here has been run on hardware.
 
-Done (tasks 1 to 6 of 19), all tested offline:
+Done (tasks 1 to 7 of 19), all tested offline:
 
 - build system, test harness, and UHD discovery that prefers the Homebrew install
 - Gray-coded M-PSK constellation, PRBS, CRCs, scrambler
@@ -21,9 +21,11 @@ Done (tasks 1 to 6 of 19), all tested offline:
 - preamble, header and payload framing, with the echo trailer
 - transmit chain (modulator) and `cf32` sample file I/O
 - receive front end (DC blocker and matched filter) and preamble acquisition: frame detection, carrier frequency (reliable to 7.5 kHz), timing, phase and level
-- channel building blocks for the offline simulator: fractional delay, carrier offset, calibrated noise
+- receive back end: cubic Farrow interpolator, decision-directed carrier loop, Gardner timing loop (detector gain measured at start-up), and the demodulator that decodes the header and payload
+- metrics: EVM and EVM-based SNR, BER against known bits, residual frequency offset, level and clipping count
+- channel building blocks for the offline simulator: fractional delay, carrier offset, sample-clock offset, calibrated noise
 
-Not done: the tracking loops and demodulator, the channel model and loopback driver, the echo test, the
+Not done: the channel model and loopback driver, the echo test, the
 UHD radio layer, the command-line modes, and 8-PSK. The `mpsk` executable is a
 stub that reports the UHD versions it was built against.
 

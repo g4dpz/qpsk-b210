@@ -54,14 +54,14 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
   - [x] 6.4 Unit tests: with a known offset, delay, and phase, the estimates land within tolerance; the detector works across a 40 dB level range and at offsets up to the edge of the acquisition range; the false-alarm count on pure noise stays below the target at the default threshold.
     - _Requirements: 9.3, 9.6, 10.6_
 
-- [ ] 7. Receive back end: tracking, demodulation, metrics
-  - [ ] 7.1 Implement the cubic Farrow interpolator, the Gardner timing detector and loop, and the decision-directed carrier loop with gains derived from damping and loop bandwidth. Document the derivation in comments.
+- [x] 7. Receive back end: tracking, demodulation, metrics
+  - [x] 7.1 Implement the cubic Farrow interpolator, the Gardner timing detector and loop, and the decision-directed carrier loop with gains derived from damping and loop bandwidth. Document the derivation in comments.
     - _Requirements: 3.3, 3.4, 7.4, 7.5, 10.7_
-  - [ ] 7.2 Implement the demodulator: header decode (BPSK) with CRC check, payload decode, descramble, and CRC-32. A failed header reports the frame as lost.
+  - [x] 7.2 Implement the demodulator: header decode (BPSK) with CRC check, payload decode, descramble, and CRC-32. A failed header reports the frame as lost.
     - _Requirements: 3.7, 4.3_
-  - [ ] 7.3 Implement metrics: EVM and SNR estimate, BER against known bits, residual frequency offset (coarse plus loop state), level in dBFS, and the clipping count.
+  - [x] 7.3 Implement metrics: EVM and SNR estimate, BER against known bits, residual frequency offset (coarse plus loop state), level in dBFS, and the clipping count.
     - _Requirements: 4.1, 4.2, 7.11, 7.12_
-  - [ ] 7.4 Unit tests: a clean modulated frame decodes with zero errors; EVM of a clean frame is near zero; BER counts match injected bit errors; the clipping count triggers on a saturated signal.
+  - [x] 7.4 Unit tests: a clean modulated frame decodes with zero errors; EVM of a clean frame is near zero; BER counts match injected bit errors; the clipping count triggers on a saturated signal.
     - _Requirements: 4.1, 4.2, 10.6_
 
 - [ ] 8. Channel simulator and one-way loopback

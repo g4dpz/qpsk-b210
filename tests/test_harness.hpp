@@ -21,6 +21,7 @@
  * which is what CTest uses to decide pass or fail.
  */
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <exception>
@@ -64,6 +65,7 @@ inline int run_all() {
   for (const auto& t : registry()) {
     failures_in_current() = 0;
     std::fprintf(stdout, "[ RUN  ] %s\n", t.name.c_str());
+    const auto started = std::chrono::steady_clock::now();
     // An exception escaping a test is a failure of that test, not of the whole
     // run. Without this, one throwing test would terminate the process and hide
     // the result of every test after it.
@@ -74,11 +76,18 @@ inline int run_all() {
     } catch (...) {
       report_failure(__FILE__, __LINE__, "uncaught non-standard exception");
     }
+    // Duration is shown only for a slow test (over half a second), so the usual
+    // output stays quiet and a test that has become expensive is easy to spot.
+    const double seconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    char slow[40] = "";
+    if (seconds > 0.5) std::snprintf(slow, sizeof slow, " (%.1f s)", seconds);
+
     if (failures_in_current() == 0) {
-      std::fprintf(stdout, "[  OK  ] %s\n", t.name.c_str());
+      std::fprintf(stdout, "[  OK  ] %s%s\n", t.name.c_str(), slow);
     } else {
-      std::fprintf(stdout, "[ FAIL ] %s (%d failed checks)\n", t.name.c_str(),
-                   failures_in_current());
+      std::fprintf(stdout, "[ FAIL ] %s (%d failed checks)%s\n", t.name.c_str(),
+                   failures_in_current(), slow);
       ++failed_tests;
     }
   }

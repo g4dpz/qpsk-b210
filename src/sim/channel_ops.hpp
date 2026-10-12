@@ -72,6 +72,26 @@ std::vector<std::complex<float>> delay_signal(const std::vector<std::complex<flo
 void rotate_carrier(std::vector<std::complex<float>>& x, double cycles_per_sample,
                     double phase_rad, double start_index = 0.0);
 
+/**
+ * Resamples a signal as a receiver whose sample clock is off by @p ppm parts per
+ * million would see it: output sample m is the signal at nominal-sample position
+ * m / (1 + ppm * 1e-6), read with windowed-sinc interpolation.
+ *
+ * A positive ppm is a receiver clock that runs FAST. It takes its samples closer
+ * together in time, so the same signal stretches over more samples, a tone appears
+ * at a lower digital frequency (f / (1 + ppm * 1e-6)), and symbols arrive further
+ * apart than the nominal sps. The timing loop's clock_offset_ppm() reports the same
+ * sign. The output is longer than the input by about ppm * 1e-6 of its length.
+ *
+ * Samples before the start are zero. The position starts at 0, so an offset has no
+ * effect at the start of the record and grows linearly along it, which is how a
+ * clock offset behaves from the moment the receiver starts.
+ *
+ * @throws std::invalid_argument if 1 + ppm * 1e-6 is not positive.
+ */
+std::vector<std::complex<float>> apply_clock_offset(const std::vector<std::complex<float>>& x,
+                                                    double ppm, int half_width = 8);
+
 /** Adds complex Gaussian noise of the given total variance to every sample. */
 void add_noise(std::vector<std::complex<float>>& x, double variance, NoiseSource& noise);
 

@@ -79,6 +79,26 @@ std::vector<std::complex<float>> delay_signal(const std::vector<std::complex<flo
   return out;
 }
 
+std::vector<std::complex<float>> apply_clock_offset(const std::vector<std::complex<float>>& x,
+                                                    double ppm, int half_width) {
+  const double ratio = 1.0 + ppm * 1e-6;
+  if (!(ratio > 0.0) || !std::isfinite(ratio)) {
+    throw std::invalid_argument("apply_clock_offset: 1 + ppm * 1e-6 must be positive, got ppm " +
+                                std::to_string(ppm));
+  }
+  if (x.empty()) return {};
+
+  // Output sample m reads the input at m / ratio. The last input sample that can be
+  // reached is x.size() - 1, so the output holds about (size - 1) * ratio + 1 samples.
+  const std::size_t out_size =
+      static_cast<std::size_t>(std::floor(static_cast<double>(x.size() - 1) * ratio)) + 1;
+  std::vector<std::complex<float>> out(out_size);
+  for (std::size_t m = 0; m < out_size; ++m) {
+    out[m] = mpsk::dsp::sinc_interpolate(x.data(), x.size(), static_cast<double>(m) / ratio, half_width);
+  }
+  return out;
+}
+
 void rotate_carrier(std::vector<std::complex<float>>& x, double cycles_per_sample,
                     double phase_rad, double start_index) {
   for (std::size_t n = 0; n < x.size(); ++n) {
