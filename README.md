@@ -43,3 +43,12 @@ cmake -S . -B build -DMPSK_WITH_UHD=OFF
 ```
 
 There are no third-party dependencies beyond UHD itself.
+
+## Continuous integration
+
+GitHub Actions builds and tests every push to `main` and `feature/**`, and every
+pull request into `main`, on Ubuntu and macOS, with warnings treated as errors.
+It covers the software-only build (Release and Debug) and a build against UHD
+(4.6 from apt on Ubuntu, 4.10 from Homebrew on macOS). The runners have no
+radio, so CI runs the offline tests only. To reproduce a CI build locally, add
+`-DMPSK_WARNINGS_AS_ERRORS=ON` to the cmake command.
