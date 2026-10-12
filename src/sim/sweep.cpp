@@ -62,6 +62,7 @@ std::vector<SweepPoint> run_sweep(const SweepConfig& config) {
     }
     pt.reached_target = pt.bit_errors >= config.target_errors;
     points.push_back(pt);
+    if (config.on_point) config.on_point(pt);
   }
   return points;
 }

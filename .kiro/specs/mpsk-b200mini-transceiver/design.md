@@ -376,18 +376,36 @@ The loss is 0.39 dB at 0 dB and between 0.03 and 0.29 dB from 1 dB up, well insi
 
 ## CLI
 
-One executable, `mpsk`, subcommands below. Options are `--name value`, parsed by a small hand-written parser; `--help` prints usage per subcommand.
+One executable, `mpsk`, subcommands below. Options are `--name value` (or `--name=value`), parsed by a small hand-written parser (`app/option_parser`); `--help` prints usage per subcommand.
 
-| Subcommand | Purpose |
-|---|---|
-| `tx` | Stream frames to a USRP, or write samples to a file |
-| `rx` | Receive from a USRP, or read samples from a file, and print per-frame reports |
-| `loopback` | Offline TX → channel → RX |
-| `echo-init` | Echo test, initiator role (hardware) |
-| `echo-resp` | Echo test, responder role (hardware) |
-| `echo-sim` | Echo test with two simulated nodes |
+| Subcommand | Purpose | State |
+|---|---|---|
+| `loopback` | Offline TX → channel → RX: a run with a report per frame, or a BER sweep | working (task 9) |
+| `echo-sim` | Echo test with two simulated nodes | declared; says it arrives with task 11 |
+| `tx` | Stream frames to a USRP, or write samples to a file | declared; needs the radio layer (tasks 12 and 13) |
+| `rx` | Receive from a USRP, or read samples from a file, and print per-frame reports | as `tx` |
+| `echo-init`, `echo-resp` | Echo test roles (hardware) | as `tx` |
+| `version` | Version and, when built with UHD, the header and library versions | working |
 
-Common options: `--mod qpsk|8psk`, `--sps`, `--rolloff`, `--span`, `--payload-bytes`, `--seed`. Radio options: `--args`, `--freq`, `--rate`, `--tx-gain`, `--rx-gain`, `--bandwidth`, `--tx-antenna`, `--rx-antenna`, `--clock-source`. Echo options: `--turnaround-ms`, `--interval-ms`, `--max-range-km`, `--echo-mode`, `--rtt-offset-us`, `--count`, `--log`. Receiver options: `--detect-threshold`, `--los-timeout`. Simulation options: `--ebn0`, `--cfo-hz`, `--phase-deg`, `--timing-frac`, `--delay-samples`, `--clock-ppm`, `--amp-db`, `--drift`.
+`mpsk` with no command prints the command list and exits 2. The old behaviour of printing the version when run bare moved to `mpsk version`, and CI runs that.
+
+**The parser.** Typed options (string, integer, number, flag), each with an optional default, a range, or a list of allowed words (matched without regard to case). Conversion is strict: the whole text must be a number, a number must be finite, an integer must be whole (`4.5` is refused, `1e6` is accepted as 1000000), and `0x10`, `nan` and `inf` are refused. A value may start with a single minus (`--cfo-hz -250`). Every error is a `UsageError` that names the option and what was wrong (`option '--sps': 1 is below the minimum of 2`), and an unknown option gets the closest known one as a suggestion. `--help` or `-h` anywhere wins over any other mistake on the line. A bug in `mpsk`'s own option declarations (an undeclared name, a duplicate) is a `std::logic_error`, kept apart from the user's mistakes.
+
+**Exit status.** 0 success; 1 the command ran and failed, or is not available in this build (an unwritable output file, a hardware command); 2 a wrong command line or a setting the libraries refuse; 3 an internal error. `loopback` returns 0 whenever it completes, whatever the bit error rate: the report is the result, and a script reads the numbers. All output goes through streams passed in, so the tests run the real commands in-process.
+
+**Options as implemented for `loopback`** (the others reuse the common groups):
+
+- Common: `--mod qpsk|8psk`, `--sps`, `--rolloff`, `--span`, `--payload-bytes`, `--seed` (the PRBS seed), `--rate` (the sample rate, default 1 MS/s; the symbol rate is rate / sps).
+- Receiver: `--detect-threshold` (the stage-1 threshold, default 0.25). `--los-timeout` belongs to the live receiver and arrives with it.
+- Simulation: `--ebn0`, `--cfo-hz`, `--phase-deg`, `--timing-frac` (added to the delay), `--delay-samples`, `--clock-ppm`, `--amp-db`, `--drift` (carrier frequency drift in Hz/s), and two added during implementation: `--phase-walk` (random-walk phase, rad/√s) and `--noise-seed`.
+- Run control: `--frames`, `--sweep START:STOP:STEP` (Eb/N0 in dB, replaces `--ebn0`), `--target-errors`, `--max-bits`, `--quiet`, `--tx-out FILE`, `--rx-out FILE` (cf32; the files are opened before the run so a bad path fails at once).
+- Radio and echo options from the first draft (`--args`, `--freq`, `--tx-gain`, `--turnaround-ms`, ...) are added with the subcommands that use them.
+
+**Checks the parser's ranges cannot make** are made when the options are read, and reported against the options: `--mod 8psk` is refused in stage 1 with a message that says what the build enables (it asks `Constellation::supported_orders()`, so adding 8 in stage 2 turns it on with no change here); `--sps` times `--span` must be even; `--ebn0` and `--sweep` are exclusive; `--tx-out` and `--rx-out` are for a single run; `--target-errors` and `--max-bits` apply only to a sweep. A sweep is limited to 200 points and 5000 frames per record.
+
+**Roll-off lower limit.** `--rolloff` is accepted from 0.1. Measured through the loopback at Eb/N0 = 12 dB: 0.1 and above decode with no errors; 0.05 gives 820 bit errors in 20 frames, and 0 fails outright (49% EVM). I have not diagnosed why. The Gardner detector's gain falls with the roll-off (0.609 at 0.2), and the loop gains are divided by it, so a vanishing gain is the first suspect, but that is a guess.
+
+**Output.** A single run prints the link and channel settings, one line per frame (counter, header and payload status, bit errors, EVM %, EVM SNR, carrier offset, clock reading) unless `--quiet`, and a summary: frames sent, detected, delivered, payload CRC ok, lost; bits compared and bit errors; the BER, or for a clean run the bound it can claim (zero errors in N bits means a BER below 3/N at 95% confidence); the theory BER at that Eb/N0 and the receiver's loss in dB; the mean EVM SNR and carrier offset. A sweep prints one row per point as it finishes, marks a point that stopped on the bit cap (it bounds the rate and does not measure it), and explains the loss column.
 
 ### Safety defaults
 

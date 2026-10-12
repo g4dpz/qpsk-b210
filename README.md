@@ -13,7 +13,7 @@ with `git checkout origin/main -- <path>`.
 
 This is not usable as a radio yet. Nothing here has been run on hardware.
 
-Done (tasks 1 to 8 of 19), all tested offline:
+Done (tasks 1 to 9 of 19), all tested offline:
 
 - build system, test harness, and UHD discovery that prefers the Homebrew install
 - Gray-coded M-PSK constellation, PRBS, CRCs, scrambler
@@ -27,9 +27,10 @@ Done (tasks 1 to 8 of 19), all tested offline:
 - a block receiver that finds and decodes every frame in a record
 - one-way loopback (modulator, channel, receiver) with per-frame reports and aggregate BER, and the AWGN sweep with theory for comparison
 
-Not done: the command-line modes (the loopback and the sweep are libraries and tests for now), the echo test, the
-UHD radio layer, and 8-PSK. The `mpsk` executable is a
-stub that reports the UHD versions it was built against.
+- the `mpsk` command line: a hand-written option parser, and `mpsk loopback` for single runs, Eb/N0 sweeps and sample files
+
+Not done: the echo test, the UHD radio layer, and 8-PSK. `mpsk tx`, `rx`, `echo-init`, `echo-resp` and `echo-sim`
+exist but only say they are not available yet (without UHD: "built without UHD").
 
 Measured offline, QPSK with the defaults: the loopback is error-free with no impairments (over 20 000 bits),
 and with carrier offsets of 250 Hz and 2.5 kHz, delays up to many frames, and a 60 dB range of levels. The AWGN
@@ -39,6 +40,22 @@ None of this has touched a radio.
 
 The requirements, design and task list are in
 `.kiro/specs/mpsk-b200mini-transceiver/`.
+
+## Using it
+
+The offline loopback needs no hardware:
+
+```sh
+build/src/app/mpsk --help
+build/src/app/mpsk loopback --frames 20                      # clean channel, one line per frame
+build/src/app/mpsk loopback --ebn0 8 --cfo-hz 1500 --delay-samples 700.5 --amp-db -30
+build/src/app/mpsk loopback --sweep 0:10:2 --max-bits 2e6    # BER against Eb/N0, with theory
+build/src/app/mpsk loopback --frames 3 --tx-out tx.cf32 --rx-out rx.cf32
+build/src/app/mpsk loopback --help                           # every option, with defaults and ranges
+```
+
+A run exits 0 whenever it completes; the report carries the result. A bad option exits 2 and names it.
+`--mod 8psk` is refused until stage 2.
 
 ## Building and testing
 

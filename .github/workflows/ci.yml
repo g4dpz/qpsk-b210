@@ -66,6 +66,19 @@ jobs:
             exit 1
           fi
 
+      - name: The binary runs a loopback and refuses the hardware commands
+        run: |
+          set -eu
+          build/src/app/mpsk version
+          build/src/app/mpsk loopback --frames 20 --quiet | tee loopback.txt
+          grep -q "bit errors 0" loopback.txt
+          if build/src/app/mpsk tx 2> tx.txt; then
+            echo "error: tx succeeded without UHD" >&2
+            exit 1
+          fi
+          cat tx.txt
+          grep -q "built without UHD" tx.txt
+
   with-uhd:
     name: ${{ matrix.os }} (with UHD)
     runs-on: ${{ matrix.os }}
@@ -114,4 +127,10 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 60
 
       - name: The binary reports matching UHD header and library versions
-        run: build/src/app/mpsk
+        run: build/src/app/mpsk version
+
+      - name: The binary runs a loopback
+        run: |
+          set -eu
+          build/src/app/mpsk loopback --frames 20 --quiet | tee loopback.txt
+          grep -q "bit errors 0" loopback.txt

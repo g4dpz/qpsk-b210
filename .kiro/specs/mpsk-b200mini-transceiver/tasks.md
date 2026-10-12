@@ -74,11 +74,12 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
   - [x] 8.4 Add the AWGN sweep from 0 to 12 dB `Eb/N0`, with fixed seeds, running each point until 100 errors or a bit cap. Check it is monotonic and within about 1 dB of the QPSK theory table.
     - _Requirements: 6.8_
 
-- [ ] 9. Command-line interface
+- [x] 9. Command-line interface
   - Write the hand-written option parser (`--name value`, per-subcommand `--help`, errors that name the bad option).
   - Create the `mpsk` executable with subcommands `loopback` and `echo-sim`, and stubs for `tx`, `rx`, `echo-init`, `echo-resp` that print "built without UHD" when UHD is off.
   - Wire the common, receiver, and simulation options from the design. Reject `--mod 8psk` in stage 1 with a clear message.
   - Unit tests for the parser: defaults, overrides, unknown option, missing value.
+  - Done as: `loopback` works, with single runs, `--sweep`, and `--tx-out`/`--rx-out`. `echo-sim` and the four hardware commands are declared and answer `--help`; they exit 1 with a message until their tasks (11, 12, 13) land. `mpsk version` replaces the bare `mpsk` that CI used to run.
   - _Requirements: 1.1, 1.2, 1.8, 10.4_
 
 - [ ] 10. Checkpoint: DSP and loopback

@@ -240,6 +240,31 @@ TEST(the_frame_loss_fraction_counts_undelivered_frames) {
   CHECK_NEAR(p.frame_loss(), 0.0, 1e-12);
 }
 
+TEST(the_progress_callback_sees_each_point_as_it_finishes_and_in_order) {
+  SweepConfig c;
+  c.ebn0_db = {1.0, 3.0, 5.0};
+  c.max_bits = 20000;
+  std::vector<SweepPoint> seen;
+  std::size_t returned_when_called = 0;
+  c.on_point = [&](const SweepPoint& p) { seen.push_back(p); returned_when_called = seen.size(); };
+  const std::vector<SweepPoint> pts = run_sweep(c);
+  REQUIRE(seen.size() == 3);
+  REQUIRE(pts.size() == 3);
+  CHECK(returned_when_called == 3);
+  for (std::size_t i = 0; i < 3; ++i) {
+    CHECK_NEAR(seen[i].ebn0_db, c.ebn0_db[i], 1e-12);
+    CHECK(seen[i].bit_errors == pts[i].bit_errors);
+    CHECK(seen[i].bits_compared == pts[i].bits_compared);
+  }
+  // A callback that throws ends the sweep and the exception reaches the caller.
+  int calls = 0;
+  c.on_point = [&](const SweepPoint&) {
+    if (++calls == 2) throw std::runtime_error("stop here");
+  };
+  CHECK_THROWS(run_sweep(c));
+  CHECK(calls == 2);
+}
+
 TEST(a_sweep_with_unusable_settings_is_refused) {
   SweepConfig c;
   c.ebn0_db.clear();

@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -24,6 +25,8 @@
 #include "sim/loopback.hpp"
 
 namespace mpsk::sim {
+
+struct SweepPoint;
 
 struct SweepConfig {
   LoopbackConfig link;
@@ -40,6 +43,12 @@ struct SweepConfig {
   std::size_t max_bits = 1000000;     ///< ... or after sending this many payload bits
   std::size_t frames_per_run = 50;    ///< frames in one record; 1 to 5000
   std::uint64_t seed = 1;
+
+  /**
+   * Called with each point as soon as it finishes, in order, so a long sweep can show
+   * progress. Optional. An exception it throws ends the sweep and reaches the caller.
+   */
+  std::function<void(const SweepPoint&)> on_point;
 };
 
 struct SweepPoint {
