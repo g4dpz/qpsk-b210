@@ -18,6 +18,7 @@ add_library(mpsk_dsp STATIC
   preamble_detector.cpp
   prbs.cpp
   rrc.cpp
+  receiver.cpp
   rx_frontend.cpp
   scrambler.cpp
   timing_loop.cpp

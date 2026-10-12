@@ -13,7 +13,7 @@ with `git checkout origin/main -- <path>`.
 
 This is not usable as a radio yet. Nothing here has been run on hardware.
 
-Done (tasks 1 to 7 of 19), all tested offline:
+Done (tasks 1 to 8 of 19), all tested offline:
 
 - build system, test harness, and UHD discovery that prefers the Homebrew install
 - Gray-coded M-PSK constellation, PRBS, CRCs, scrambler
@@ -23,11 +23,19 @@ Done (tasks 1 to 7 of 19), all tested offline:
 - receive front end (DC blocker and matched filter) and preamble acquisition: frame detection, carrier frequency (reliable to 7.5 kHz), timing, phase and level
 - receive back end: cubic Farrow interpolator, decision-directed carrier loop, Gardner timing loop (detector gain measured at start-up), and the demodulator that decodes the header and payload
 - metrics: EVM and EVM-based SNR, BER against known bits, residual frequency offset, level and clipping count
-- channel building blocks for the offline simulator: fractional delay, carrier offset, sample-clock offset, calibrated noise
+- the offline channel: delay (whole, fractional, longer than a frame), gain, carrier offset and phase, slow drift (frequency ramp and random-walk phase), sample-clock offset, and noise set from Es/N0
+- a block receiver that finds and decodes every frame in a record
+- one-way loopback (modulator, channel, receiver) with per-frame reports and aggregate BER, and the AWGN sweep with theory for comparison
 
-Not done: the channel model and loopback driver, the echo test, the
-UHD radio layer, the command-line modes, and 8-PSK. The `mpsk` executable is a
+Not done: the command-line modes (the loopback and the sweep are libraries and tests for now), the echo test, the
+UHD radio layer, and 8-PSK. The `mpsk` executable is a
 stub that reports the UHD versions it was built against.
+
+Measured offline, QPSK with the defaults: the loopback is error-free with no impairments (over 20 000 bits),
+and with carrier offsets of 250 Hz and 2.5 kHz, delays up to many frames, and a 60 dB range of levels. The AWGN
+sweep from 0 to 10 dB Eb/N0 sits within 0.4 dB of ideal QPSK theory (about 0.1 dB from 4 dB up). At 0 dB Eb/N0
+only 17% of frames get through, because the header has no error protection. The table is in the design.
+None of this has touched a radio.
 
 The requirements, design and task list are in
 `.kiro/specs/mpsk-b200mini-transceiver/`.

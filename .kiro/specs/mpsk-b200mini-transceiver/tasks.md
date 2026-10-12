@@ -64,14 +64,14 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
   - [x] 7.4 Unit tests: a clean modulated frame decodes with zero errors; EVM of a clean frame is near zero; BER counts match injected bit errors; the clipping count triggers on a saturated signal.
     - _Requirements: 4.1, 4.2, 10.6_
 
-- [ ] 8. Channel simulator and one-way loopback
-  - [ ] 8.1 Implement the channel model in the order from the design: bulk delay (integer and fractional), amplitude scale, carrier offset, phase offset and slow drift, sample-clock offset in ppm, then AWGN with `σ² = Pₛ · sps / (Eₛ/N₀)`.
+- [x] 8. Channel simulator and one-way loopback
+  - [x] 8.1 Implement the channel model in the order from the design: bulk delay (integer and fractional), amplitude scale, carrier offset, phase offset and slow drift, sample-clock offset in ppm, then AWGN with `σ² = Pₛ · sps / (Eₛ/N₀)`.
     - _Requirements: 6.2, 6.5, 6.6_
-  - [ ] 8.2 Implement the one-way loopback driver: modulator, channel, receiver, with per-frame reports and aggregate BER.
+  - [x] 8.2 Implement the one-way loopback driver: modulator, channel, receiver, with per-frame reports and aggregate BER.
     - _Requirements: 6.1, 4.1_
-  - [ ] 8.3 Integration tests with QPSK: noiseless BER exactly zero over at least 10,000 bits; carrier offsets of 1e-3 and 1e-2 of the symbol rate with random phase and fractional timing; a small offset below 1e-4 with a few ppm of clock offset and slow drift; delays of zero, a fraction of a frame, and over one frame with amplitude scaled across at least 40 dB.
+  - [x] 8.3 Integration tests with QPSK: noiseless BER exactly zero over at least 10,000 bits; carrier offsets of 1e-3 and 1e-2 of the symbol rate with random phase and fractional timing; a small offset below 1e-4 with a few ppm of clock offset and slow drift; delays of zero, a fraction of a frame, and over one frame with amplitude scaled across at least 40 dB.
     - _Requirements: 6.3, 6.4, 6.5, 6.6_
-  - [ ] 8.4 Add the AWGN sweep from 0 to 12 dB `Eb/N0`, with fixed seeds, running each point until 100 errors or a bit cap. Check it is monotonic and within about 1 dB of the QPSK theory table.
+  - [x] 8.4 Add the AWGN sweep from 0 to 12 dB `Eb/N0`, with fixed seeds, running each point until 100 errors or a bit cap. Check it is monotonic and within about 1 dB of the QPSK theory table.
     - _Requirements: 6.8_
 
 - [ ] 9. Command-line interface

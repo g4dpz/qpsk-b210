@@ -69,10 +69,11 @@ flowchart LR
 CMakeLists.txt
 cmake/MpskFindUhd.cmake
 src/dsp/        constellation, gray, bits, lfsr, prbs, crc, scrambler, rrc, fir,
-                farrow, dc_blocker, preamble, framer, modulator, detector,
-                freq_estimator, carrier_loop, gardner, demodulator, metrics
+                interpolator, dc_blocker, rx_frontend, preamble, framer, modulator,
+                preamble_detector, loop_gains, carrier_loop, timing_loop, farrow,
+                demodulator, metrics, receiver
 src/io/         sample_file (cf32 reader/writer), payload_source (PRBS or file/stdin)
-src/sim/        channel, sim_radio
+src/sim/        channel_ops, channel, theory, loopback, sweep, sim_radio
 src/link/       radio_iface, echo_protocol, echo_initiator, echo_responder
 src/radio/      usrp_radio, device_select, clock_setup
 src/app/        main, cli, modes
@@ -321,7 +322,12 @@ where `T_cal` is an optional calibration offset (`--rtt-offset-us`). The conduct
 
 ### Channel model
 
-Applied in this order: bulk delay (integer samples plus fractional, from a windowed-sinc interpolator), amplitude scale, carrier frequency offset, phase offset and slow phase drift (a ramp plus a small random walk), sample-clock offset in ppm (a slowly varying fractional delay), then AWGN. The simulator adds nothing else: no multipath, no fading, no I/Q imbalance.
+Applied in this order (`Channel`): bulk delay (integer samples plus fractional, from a windowed-sinc interpolator), amplitude scale, carrier frequency offset, phase offset and slow phase drift, sample-clock offset in ppm (a slowly varying fractional delay), then AWGN. The simulator adds nothing else: no multipath, no fading, no I/Q imbalance. The building blocks are in `channel_ops`; `Channel` composes them and is the thing the loopback, the sweep and later the simulated radio use.
+
+- **Order matters, and the tests check it.** The delay comes before the clock offset, so a pulse at `c` delayed by `D` arrives at `(c + D)(1 + ppm·1e-6)`, as it would for a receiver whose clock has been off since it started. The carrier offset comes before the clock offset, so the receiver sees `f/(1 + ppm·1e-6)`. The gain comes before the noise, and the noise is set against the signal as it arrives, so `Es/N0` is what the receiver sees at any gain: a signal 40 dB down has its noise 40 dB down with it. A fixed noise floor under a falling signal is not simulated.
+- **Whole-sample delay is padding.** Only the fractional part of a delay goes through the interpolator, so a delay of many frames costs nothing extra. A delay of 30 000 samples (11 frames) is found at the right place to within 0.3 sample.
+- **Slow drift is two things.** A frequency ramp (`freq_drift_hz_per_s`: the carrier frequency starts at `cfo_hz` and changes linearly, so the phase has a quadratic term) and a random-walk phase (`phase_walk_rad_per_sqrt_s`: a Wiener process, increments of standard deviation `w·sqrt(t)`). The design originally said "a ramp plus a small random walk"; a ramp in *phase* is just a frequency offset, which `cfo_hz` already is, so the ramp that adds an impairment is the ramp in frequency. The phase track is computed from the sample index in double precision, not accumulated, so a long record does not pick up rounding error in the carrier. The walk has its own random source, so switching it on does not change the noise a seed produces.
+- **Where the receiver gives out.** Measured at Es/N0 = 25 dB over 100 frames each: a random-walk phase of up to 10 rad/√s is tracked with no errors, 50 rad/√s loses the carrier (97 frames found, none with a good CRC). A frequency ramp of 20 kHz/s (a 6 kHz change over the 0.3 s capture) is followed, and 100 kHz/s runs past the 7.5 kHz acquisition limit and loses frames. The tests use drift and walk well inside these limits, because they test that a *slow* drift is held, not where the limit is.
 
 **Noise level.** The complex noise variance per sample is `σ² = Pₛ · sps / (Eₛ/N₀)`, where `Pₛ` is the average signal power per sample while a frame is on air. This follows from `N₀ = σ²/Fs` and `Eₛ = Pₛ/Rs`, so `Eₛ/N₀ = Pₛ · sps / σ²`. The conversion is `Eb/N0 = Es/N0 / log₂M`. All reported curves use `Eb/N0`.
 
@@ -329,8 +335,14 @@ Checked end to end through the real transmitter and receiver front end, measurin
 
 ### Loopback modes
 
-- `loopback`: modulator → channel → receiver, one direction, for BER measurements and impairment sweeps. It can read the impaired samples from, or write the transmit samples to, a file.
+- `loopback`: modulator → channel → receiver, one direction, for BER measurements and impairment sweeps (`LoopbackLink`). It can read the impaired samples from, or write the transmit samples to, a file (the link keeps them on request; the file I/O arrives with the CLI in task 9).
 - `loopback --echo`: two `SimRadio` nodes with the initiator on one and the responder on the other, and a separate channel per direction (own delay, offset, scale). `SimRadio` provides a simulated device clock per node, delivers received blocks with time stamps, and accepts timed bursts. A burst scheduled in the past returns `Late`, just as the real radio would.
+
+**One record, not one pass per frame.** A run puts all its frames into a single record, with silence between them, passes it through the channel once, and gives the whole record to the receiver. The carrier offset, the phase drift and the clock offset are then continuous across the capture, as on a real receiver, and the receiver has to find every frame in a stream (requirement 6.5 says "hold lock for the whole capture"). The receiver is `Receiver` in `mpsk_dsp`: front end, then `acquire_preamble`, then `Demodulator`, repeated; after a frame it resumes where that frame ends (so the scrambled payload is never searched for a preamble), and after a frame whose header failed it resumes after the preamble and header, which are all it knows to be there.
+
+**Accounting.** The payloads are PRBS, so the receiver side regenerates what a frame should have carried from the counter in its header. A frame is *delivered* when its header CRC passes and its counter is one that was sent (and not already seen). Bit errors are counted over the payload of every delivered frame, including ones whose payload CRC failed, so the BER says by how much a frame is wrong where the CRC only says that it is. A payload CRC can fail with zero payload bit errors: an error in the 32 CRC bits themselves (3% of a frame's bits). Undelivered frames contribute no bits, and are counted as `frames_lost`.
+
+**What the BER is conditional on.** The header is 72 BPSK symbols with a CRC-16 and no error correction, so at low SNR most frames are lost to the header, not the payload: at Eb/N0 = 0 dB only 17 of 100 frames are delivered, at 2 dB 63, at 4 dB 91, at 6 dB 99. The BER is therefore measured over the surviving frames. The header and the payload see independent noise, so this changes the payload's error rate very little (the residual effect is on the acquisition and the loops), but the frame-loss figure must be read with the BER. A frame-loss figure that matters for a real link is a header-protection question for later; it does not change the BER comparison with theory.
 
 ### Theory used to judge the sweep (Requirement 6.8)
 
@@ -344,6 +356,23 @@ Checked end to end through the real transmitter and receiver front end, measurin
 For Gray-coded 8-PSK, `Pb ≈ (2/3)·Q(√(6·Eb/N0)·sin(π/8))`, about 1e-3 at 10 dB. At a BER of 1e-5, 8-PSK needs roughly 3.5 dB more `Eb/N0` than QPSK.
 
 The requirement is a monotonic curve within an order of magnitude of theory. The quality target is stricter: **within about 1 dB of theory for QPSK and 1.5 dB for 8-PSK**. Reaching a BER of 1e-4 needs at least 1e6 simulated bits per point; the sweep runs each point until 100 errors or a bit cap, with fixed random seeds so the results are repeatable.
+
+**What a point can prove depends on how many errors it saw.** With 100 errors the rate is known to about 10% (one standard deviation), which is 0.2 dB. A point that reached its bit cap with only a few errors has bounded the rate and measured nothing, so each point records `reached_target`, and the test treats the two kinds differently: with 50 or more errors the loss against theory must lie between -0.5 and +1.0 dB; with fewer, the error count must be no more than a receiver 1 dB worse than theory would give (plus five standard deviations). Noise seeds differ for every run of every point (`sweep_run_seed`) and the payloads differ from run to run (`sweep_first_counter`), so the runs of a point are independent.
+
+**Measured, QPSK, 4 sps, 128-byte payloads, defaults, no impairments** (cap 20 Mbit per point, 100 errors target; `loss` is the extra Eb/N0 the receiver needed over ideal theory to reach the measured BER):
+
+| Eb/N0 | BER measured | errors / bits | theory | loss | frames delivered |
+|---|---|---|---|---|---|
+| 0 dB | 8.8e-2 | 1534 / 17 408 | 7.9e-2 | 0.39 dB | 17 of 100 |
+| 2 dB | 4.2e-2 | 2684 / 64 512 | 3.8e-2 | 0.24 dB | 63 of 100 |
+| 4 dB | 1.3e-2 | 1229 / 93 184 | 1.25e-2 | 0.08 dB | 91 of 100 |
+| 6 dB | 2.5e-3 | 257 / 101 376 | 2.4e-3 | 0.06 dB | 99 of 100 |
+| 8 dB | 2.3e-4 | 119 / 512 000 | 1.9e-4 | 0.13 dB | all |
+| 9 dB | 3.9e-5 | 100 / 2.56 M | 3.4e-5 | 0.08 dB | all |
+| 10 dB | 5.6e-6 | 100 / 17.7 M | 3.9e-6 | 0.16 dB | all |
+| 11 dB | 1.5e-7 | 3 / 20 M | 2.6e-7 | not measured (3 errors) | all |
+
+The loss is 0.39 dB at 0 dB and between 0.03 and 0.29 dB from 1 dB up, well inside the 1 dB target. (The 11 dB point has only 3 errors, so it bounds the rate and measures nothing; the 10 dB point's 0.16 dB is 100 errors, so about 0.1 dB uncertain.) I have not diagnosed where the excess at the lowest points comes from. Candidates are the carrier and timing loops working at an Es/N0 of 3 to 5 dB, and acquisition and header survival, which select the frames that count. At the higher points it is the same size as the 1.10 times ideal BER found in the receiver tests at an Es/N0 of 10 dB (task 7). With a carrier offset of 1.5 kHz, a delay, a 20 ppm clock offset and a phase offset in the channel, the curve at 4, 6 and 8 dB stays inside the same band (`test_sweep`). The whole sweep above, 41 Mbit of payload, ran in 9.3 s on a recent Mac in a Release build.
 
 ## CLI
 
