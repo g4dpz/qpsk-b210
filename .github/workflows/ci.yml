@@ -1,0 +1,115 @@
+name: CI
+
+# Runs on pushes to main and to feature branches, and on pull requests into main.
+# The first job builds the software-only configuration (no UHD, no hardware) on
+# Linux and macOS. The second job builds against a real UHD install on both, to
+# exercise UHD discovery and the header/library version check. No job needs, or
+# can use, a radio: everything that runs here is the offline test suite.
+on:
+  push:
+    branches: [main, "feature/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch makes an older run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  software-only:
+    name: ${{ matrix.os }} ${{ matrix.build_type }} (no UHD)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        build_type: [Release, Debug]
+    steps:
+      # Pinned to the commit of release v4.4.0 rather than a movable tag.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Show toolchain
+        run: |
+          cmake --version
+          c++ --version
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DMPSK_WITH_UHD=OFF
+          -DMPSK_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 60
+
+      - name: The software-only binary links no UHD or Boost
+        run: |
+          set -eu
+          if [ "$(uname)" = "Darwin" ]; then
+            libs="$(otool -L build/src/app/mpsk)"
+          else
+            libs="$(ldd build/src/app/mpsk)"
+          fi
+          echo "$libs"
+          if echo "$libs" | grep -qiE "uhd|boost"; then
+            echo "error: the MPSK_WITH_UHD=OFF binary links UHD or Boost" >&2
+            exit 1
+          fi
+
+  with-uhd:
+    name: ${{ matrix.os }} (with UHD)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install UHD (Linux, apt)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libuhd-dev uhd-host
+
+      - name: Install UHD (macOS, Homebrew)
+        if: runner.os == 'macOS'
+        run: brew install uhd
+
+      - name: Find the UHD prefix
+        id: uhd
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            prefix="$(brew --prefix)"
+          else
+            prefix="/usr"
+          fi
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "UHD prefix: $prefix"
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DMPSK_UHD_PREFIX=${{ steps.uhd.outputs.prefix }}
+          -DMPSK_WARNINGS_AS_ERRORS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 60
+
+      - name: The binary reports matching UHD header and library versions
+        run: build/src/app/mpsk

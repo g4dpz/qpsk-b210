@@ -23,8 +23,10 @@ set(ENV{UHD_DIR} "${MPSK_UHD_PREFIX}")
 list(PREPEND CMAKE_PREFIX_PATH "${MPSK_UHD_PREFIX}")
 
 # First choice: the configured prefix only.
+# The prefix itself is a hint so CMake tries its standard install layouts under it,
+# which covers lib/cmake/uhd (Homebrew) and lib/<arch>/cmake/uhd (Debian, Ubuntu).
 find_package(UHD 4.0 CONFIG QUIET
-  HINTS "${MPSK_UHD_PREFIX}/lib/cmake/uhd"
+  HINTS "${MPSK_UHD_PREFIX}" "${MPSK_UHD_PREFIX}/lib/cmake/uhd"
   NO_DEFAULT_PATH)
 
 if(UHD_FOUND)

@@ -22,6 +22,7 @@ endif()
 # ---------------------------------------------------------------------------
 option(MPSK_WITH_UHD "Build the UHD radio layer and the hardware subcommands" ON)
 option(MPSK_BUILD_TESTS "Build the unit and integration tests" ON)
+option(MPSK_WARNINGS_AS_ERRORS "Treat compiler warnings as errors (used by CI)" OFF)
 set(MPSK_UHD_PREFIX "/opt/homebrew" CACHE PATH
   "Install prefix searched first for UHD (the Homebrew prefix on Apple Silicon). \
 Older copies in /usr/local are deliberately not preferred.")
@@ -30,6 +31,9 @@ Older copies in /usr/local are deliberately not preferred.")
 # third-party headers and imported targets are never affected.
 add_library(mpsk_warnings INTERFACE)
 target_compile_options(mpsk_warnings INTERFACE -Wall -Wextra)
+if(MPSK_WARNINGS_AS_ERRORS)
+  target_compile_options(mpsk_warnings INTERFACE -Werror)
+endif()
 
 # ---------------------------------------------------------------------------
 # UHD discovery (only when the radio layer is requested)
