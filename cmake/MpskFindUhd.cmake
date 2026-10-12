@@ -53,6 +53,20 @@ else()
   find_package(UHD 4.0 CONFIG REQUIRED)
 endif()
 
+# Newer UHD packages (Homebrew's 4.10) export the imported target UHD::uhd. Older
+# ones (Ubuntu 24.04's 4.6) only set UHD_LIBRARIES and UHD_INCLUDE_DIRS, so build
+# an equivalent target from those. Either way the rest of the project links
+# UHD::uhd and does not need to know which kind of package it got.
 if(NOT TARGET UHD::uhd)
-  message(FATAL_ERROR "UHD was found but the imported target UHD::uhd is missing")
+  if(NOT UHD_LIBRARIES OR NOT UHD_INCLUDE_DIRS)
+    message(FATAL_ERROR
+      "UHD was found, but it provides neither the target UHD::uhd nor the "
+      "variables UHD_LIBRARIES and UHD_INCLUDE_DIRS")
+  endif()
+  add_library(UHD::uhd INTERFACE IMPORTED)
+  set_target_properties(UHD::uhd PROPERTIES
+    INTERFACE_LINK_LIBRARIES "${UHD_LIBRARIES}"
+    INTERFACE_INCLUDE_DIRECTORIES "${UHD_INCLUDE_DIRS}")
+  message(STATUS "UHD::uhd built from UHD_LIBRARIES and UHD_INCLUDE_DIRS "
+                 "(this UHD package does not export the target)")
 endif()
