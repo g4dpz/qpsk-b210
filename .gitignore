@@ -1,0 +1,8 @@
+build/
+build-*/
+.cache/
+*.dat
+*.bin
+*.cf32
+*.csv
+.DS_Store
