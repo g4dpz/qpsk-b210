@@ -46,6 +46,7 @@ mpsk_add_test(test_channel test_channel.cpp)
 mpsk_add_test(test_receiver test_receiver.cpp)
 mpsk_add_test(test_loopback test_loopback.cpp)
 mpsk_add_test(test_sweep test_sweep.cpp)
+mpsk_add_test(test_spectrum test_spectrum.cpp)
 
 # The command line: the parser and the subcommands, run in-process.
 mpsk_add_test(test_option_parser test_option_parser.cpp NO_DEFAULT_LIBS LIBS mpsk_app)

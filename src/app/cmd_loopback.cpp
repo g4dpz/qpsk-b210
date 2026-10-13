@@ -73,12 +73,27 @@ std::string describe_channel(const sim::ChannelConfig& c, const std::optional<do
   return o.str();
 }
 
+std::string describe_rate(double hz) {
+  if (hz >= 1e6) return format("%.6g MS/s", hz / 1e6);
+  if (hz >= 1e3) return format("%.6g kS/s", hz / 1e3);
+  return format("%.6g S/s", hz);
+}
+
 std::string describe_link(const PhyOptions& phy) {
   std::string mod = modulation_name(phy.modulation_order);
   for (char& c : mod) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-  return format("%s, %d samples/symbol, %.6g MS/s (%.6g ksym/s), roll-off %.3g, span %d symbols, %zu-byte payloads",
-                mod.c_str(), phy.samples_per_symbol, phy.sample_rate_hz / 1e6, phy.symbol_rate_hz() / 1e3,
-                phy.rolloff, phy.span_symbols, phy.payload_bytes);
+  std::string line = format("%s, %d samples/symbol, sample rate %s, symbol rate %.6g Bd, roll-off %.3g, span %d symbols, %zu-byte payloads",
+                            mod.c_str(), phy.samples_per_symbol, describe_rate(phy.sample_rate_hz).c_str(),
+                            phy.symbol_rate_hz(), phy.rolloff, phy.span_symbols, phy.payload_bytes);
+  if (phy.profile != kProfileDefault) line += format(" (profile %s)", phy.profile.c_str());
+  return line;
+}
+
+/** A line to print when the channel's carrier offset is more than the preamble can be relied on to find. */
+std::string acquisition_note(const PhyOptions& phy, const sim::ChannelConfig& c) {
+  if (std::fabs(c.cfo_hz) <= phy.acquisition_range_hz()) return "";
+  return format("note: a carrier offset of %.6g Hz is beyond the reliable acquisition range of about +-%.6g Hz (3%% of the symbol rate); frames may not be found\n",
+                c.cfo_hz, phy.acquisition_range_hz());
 }
 
 void write_samples(io::Cf32Writer& w, const std::string& path, const std::vector<std::complex<float>>& samples,
@@ -110,6 +125,7 @@ int run_single(const ParsedOptions& v, const PhyOptions& phy, const SimulationOp
   const bool keep = tx_file || rx_file;
   out << "mpsk loopback: " << describe_link(phy) << "\n";
   out << "channel: " << describe_channel(channel, sim_opts.ebn0_db, phy.modulation_order) << "\n";
+  out << acquisition_note(phy, channel);
   out << "sending " << frames << " frames\n\n";
 
   const sim::LoopbackResult r = link.run(channel, frames, 1, keep);
@@ -198,6 +214,7 @@ int run_sweep_mode(const ParsedOptions& v, const PhyOptions& phy, const Simulati
 
   out << "mpsk loopback sweep: " << describe_link(phy) << "\n";
   out << "channel: " << describe_channel(sim_opts.channel, std::nullopt, phy.modulation_order, true) << "\n";
+  out << acquisition_note(phy, sim_opts.channel);
   out << format("sweeping Eb/N0 %g to %g dB in steps of %g; each point stops at %zu bit errors or %zu payload bits\n\n",
                 start, stop, step, sc.target_errors, sc.max_bits);
   out << "  Eb/N0 dB   BER measured   errors / bits compared      theory BER   loss dB  frames delivered\n";

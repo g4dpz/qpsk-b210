@@ -6,7 +6,7 @@
  *        library configuration.
  *
  * Three groups, named as in the design:
- *   - common:      --mod --sps --rolloff --span --payload-bytes --seed --rate
+ *   - common:      --profile --mod --sps --rolloff --span --payload-bytes --seed --rate --baud
  *   - receiver:    --detect-threshold
  *   - simulation:  --ebn0 --cfo-hz --phase-deg --timing-frac --delay-samples
  *                  --clock-ppm --amp-db --drift --phase-walk --noise-seed
@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 
 #include "app/option_parser.hpp"
 #include "dsp/modulator.hpp"
@@ -29,7 +30,18 @@
 
 namespace mpsk::app {
 
+/**
+ * A named set of defaults. "default" is the bench setting (250 kBd, roll-off 0.35). "qo100-nb"
+ * fits the 2.7 kHz channel of the QO-100 narrowband transponder (Requirement 12): 2000 Bd,
+ * roll-off 0.25 (nominal bandwidth 2.5 kHz) and a pulse span of 21 symbols, which pulls the
+ * far skirts of the spectrum inside the channel (see the design). An option given on the
+ * command line always overrides the profile's value.
+ */
+constexpr const char* kProfileDefault = "default";
+constexpr const char* kProfileNarrowband = "qo100-nb";
+
 struct PhyOptions {
+  std::string profile = kProfileDefault;
   int modulation_order = 4;
   int samples_per_symbol = 4;
   double rolloff = 0.35;
@@ -40,6 +52,13 @@ struct PhyOptions {
   double detect_threshold = 0.25;   ///< stage-1 threshold; set by the receiver group
 
   double symbol_rate_hz() const { return sample_rate_hz / samples_per_symbol; }
+
+  /**
+   * The carrier offset the preamble alone is reliable to: 3% of the symbol rate (7.5 kHz at
+   * 250 kBd, measured in task 6; the theoretical limit is 3.125%). A wider search is
+   * task 10A.4.
+   */
+  double acquisition_range_hz() const { return 0.03 * symbol_rate_hz(); }
   dsp::ModulatorConfig modulator() const;
   dsp::ReceiverConfig receiver() const;
 };

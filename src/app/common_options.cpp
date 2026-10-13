@@ -9,6 +9,10 @@ namespace mpsk::app {
 
 namespace {
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kNarrowbandBaud = 2000.0;
+constexpr double kNarrowbandRolloff = 0.25;
+constexpr int kNarrowbandSpan = 21;
+constexpr double kDefaultSampleRateHz = 1e6;
 }
 
 std::string modulation_name(int order) {
@@ -36,13 +40,16 @@ dsp::ReceiverConfig PhyOptions::receiver() const {
 
 void add_phy_options(OptionParser& p) {
   p.group("Common options");
+  p.add_string("profile", "", "Defaults for a use: 'default' is the bench setting, 'qo100-nb' fits the 2.7 kHz QO-100 narrowband channel (2000 Bd, roll-off 0.25, span 21)",
+               std::string(kProfileDefault), {kProfileDefault, kProfileNarrowband});
   p.add_string("mod", "", "Payload modulation", std::string("qpsk"), {"qpsk", "8psk"});
   p.add_integer("sps", "N", "Samples per symbol", 4, 2, 64);
-  p.add_number("rolloff", "BETA", "Root-raised-cosine roll-off; below 0.1 the receiver does not lock", 0.35, 0.1, 1.0);
-  p.add_integer("span", "N", "Pulse span in symbols", 11, 2, 64);
+  p.add_number("rolloff", "BETA", "Root-raised-cosine roll-off; below 0.1 the receiver does not lock (profile qo100-nb: 0.25)", 0.35, 0.1, 1.0);
+  p.add_integer("span", "N", "Pulse span in symbols (profile qo100-nb: 21)", 11, 2, 64);
   p.add_integer("payload-bytes", "N", "Payload bytes per frame", 128, 1, 4096);
   p.add_integer("seed", "N", "Seed of the pseudorandom payload", 3, 0, 4294967295LL);
-  p.add_number("rate", "HZ", "Sample rate; symbol rate is rate / sps", 1e6, 1.0, 1e9);
+  p.add_number("rate", "HZ", "Sample rate; symbol rate is rate / sps (default 1e6; with --baud, baud times sps)", std::nullopt, 1.0, 1e9);
+  p.add_number("baud", "BD", "Symbol rate; sets the sample rate to baud times sps (profile qo100-nb: 2000). Not with --rate", std::nullopt, 1.0, 1e8);
 }
 
 void add_receiver_options(OptionParser& p) {
@@ -66,6 +73,9 @@ void add_simulation_options(OptionParser& p) {
 
 PhyOptions read_phy_options(const ParsedOptions& v) {
   PhyOptions o;
+  o.profile = v.str("profile");
+  const bool narrowband = o.profile == kProfileNarrowband;
+
   const std::string mod = v.str("mod");
   o.modulation_order = mod == "8psk" ? 8 : 4;
 
@@ -77,9 +87,11 @@ PhyOptions read_phy_options(const ParsedOptions& v) {
                      "); use --mod " + modulation_name(enabled.front()));
   }
 
+  // An option given on the command line wins; otherwise the profile's value; otherwise the default.
   o.samples_per_symbol = static_cast<int>(v.integer("sps"));
-  o.rolloff = v.number("rolloff");
-  o.span_symbols = static_cast<int>(v.integer("span"));
+  o.rolloff = v.given("rolloff") ? v.number("rolloff") : (narrowband ? kNarrowbandRolloff : v.number("rolloff"));
+  o.span_symbols = v.given("span") ? static_cast<int>(v.integer("span"))
+                                   : (narrowband ? kNarrowbandSpan : static_cast<int>(v.integer("span")));
   if ((o.samples_per_symbol * o.span_symbols) % 2 != 0) {
     throw UsageError("options '--sps' and '--span': samples per symbol times span must be even, got " +
                      std::to_string(o.samples_per_symbol) + " x " + std::to_string(o.span_symbols) +
@@ -87,7 +99,22 @@ PhyOptions read_phy_options(const ParsedOptions& v) {
   }
   o.payload_bytes = static_cast<std::size_t>(v.integer("payload-bytes"));
   o.prbs_seed = static_cast<std::uint32_t>(v.integer("seed"));
-  o.sample_rate_hz = v.number("rate");
+
+  if (v.given("rate") && v.given("baud")) {
+    throw UsageError("give either '--rate' (sample rate) or '--baud' (symbol rate), not both");
+  }
+  if (v.given("rate")) {
+    o.sample_rate_hz = v.number("rate");
+  } else if (v.given("baud")) {
+    o.sample_rate_hz = v.number("baud") * o.samples_per_symbol;
+  } else if (narrowband) {
+    o.sample_rate_hz = kNarrowbandBaud * o.samples_per_symbol;
+  } else {
+    o.sample_rate_hz = kDefaultSampleRateHz;
+  }
+  if (o.sample_rate_hz > 1e9) {
+    throw UsageError("the sample rate " + std::to_string(o.sample_rate_hz) + " Hz (baud times samples per symbol) is above 1e9");
+  }
   return o;
 }
 

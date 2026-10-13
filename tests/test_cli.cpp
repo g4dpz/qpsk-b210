@@ -12,6 +12,7 @@
 
 #include "app/cli.hpp"
 #include "app/option_parser.hpp"
+#include "dsp/spectrum.hpp"
 #include "io/sample_file.hpp"
 #include "temp_file.hpp"
 #include "test_harness.hpp"
@@ -90,7 +91,7 @@ TEST(help_for_a_command_is_the_same_by_either_route) {
   // Every option the design names for the offline modes is documented.
   for (const char* opt : {"--mod", "--sps", "--rolloff", "--span", "--payload-bytes", "--seed", "--detect-threshold",
                           "--ebn0", "--cfo-hz", "--phase-deg", "--timing-frac", "--delay-samples", "--clock-ppm",
-                          "--amp-db", "--drift", "--sweep", "--frames", "--tx-out", "--rx-out"}) {
+                          "--amp-db", "--drift", "--sweep", "--frames", "--tx-out", "--rx-out", "--profile", "--baud"}) {
     CHECK(contains(a.out, opt));
   }
 }
@@ -234,7 +235,7 @@ TEST(pulse_and_payload_options_reach_the_link) {
   CHECK(contains(r.out, "roll-off 0.5"));
   CHECK(contains(r.out, "span 9 symbols"));
   CHECK(contains(r.out, "40-byte payloads"));
-  CHECK(contains(r.out, "2 MS/s (250 ksym/s)"));
+  CHECK(contains(r.out, "sample rate 2 MS/s, symbol rate 250000 Bd"));
   CHECK(number_after(r.out, "payload bits compared ") == 4 * 40 * 8);
   CHECK(number_after(r.out, "bit errors ") == 0);
 }
@@ -612,6 +613,121 @@ TEST(the_sample_rate_sets_how_far_a_carrier_offset_can_go) {
   CHECK(number_after(slow.out, "delivered ") == 0);
   const Run fast = cli({"loopback", "--frames", "3", "--quiet", "--cfo-hz", "12000", "--rate", "2e6"});
   CHECK(number_after(fast.out, "delivered ") == 3);
+}
+
+// ---- The narrowband profile and --baud (task 10A.1) -------------------------
+
+TEST(the_narrowband_profile_sets_2000_baud_roll_off_0_25_and_span_21) {
+  const Run r = cli({"loopback", "--profile", "qo100-nb", "--frames", "10", "--quiet"});
+  CHECK(r.code == 0);
+  CHECK(contains(r.out, "symbol rate 2000 Bd"));
+  CHECK(contains(r.out, "sample rate 8 kS/s"));
+  CHECK(contains(r.out, "roll-off 0.25"));
+  CHECK(contains(r.out, "span 21 symbols"));
+  CHECK(contains(r.out, "4 samples/symbol"));
+  CHECK(contains(r.out, "QPSK"));
+  CHECK(contains(r.out, "(profile qo100-nb)"));
+  CHECK(number_after(r.out, "delivered ") == 10);
+  CHECK(number_after(r.out, "bit errors ") == 0);
+  // The default is not described as a profile.
+  CHECK(!contains(cli({"loopback", "--frames", "2", "--quiet"}).out, "(profile"));
+}
+
+TEST(an_option_given_with_the_profile_overrides_the_profile) {
+  auto header = [](const Args& extra) {
+    Args a = {"loopback", "--profile", "qo100-nb", "--frames", "2", "--quiet"};
+    a.insert(a.end(), extra.begin(), extra.end());
+    return cli(a);
+  };
+  const Run roll = header({"--rolloff", "0.35"});
+  CHECK(roll.code == 0);
+  CHECK(contains(roll.out, "roll-off 0.35"));
+  CHECK(contains(roll.out, "span 21 symbols"));            // the rest of the profile stays
+  CHECK(contains(roll.out, "symbol rate 2000 Bd"));
+
+  const Run span = header({"--span", "11"});
+  CHECK(contains(span.out, "span 11 symbols"));
+  CHECK(contains(span.out, "roll-off 0.25"));
+
+  const Run baud = header({"--baud", "1800"});
+  CHECK(contains(baud.out, "symbol rate 1800 Bd"));
+  CHECK(contains(baud.out, "sample rate 7.2 kS/s"));
+
+  const Run sps = header({"--sps", "8"});
+  CHECK(contains(sps.out, "symbol rate 2000 Bd"));         // baud holds, the sample rate follows
+  CHECK(contains(sps.out, "sample rate 16 kS/s"));
+  CHECK(contains(sps.out, "8 samples/symbol"));
+
+  const Run rate = header({"--rate", "16000"});
+  CHECK(contains(rate.out, "sample rate 16 kS/s"));
+  CHECK(contains(rate.out, "symbol rate 4000 Bd"));        // an explicit sample rate beats the profile's baud
+}
+
+TEST(baud_sets_the_sample_rate_to_baud_times_samples_per_symbol) {
+  const Run r = cli({"loopback", "--baud", "2000", "--frames", "2", "--quiet"});
+  CHECK(contains(r.out, "sample rate 8 kS/s, symbol rate 2000 Bd"));
+  CHECK(contains(r.out, "roll-off 0.35"));                 // the default profile's pulse
+  CHECK(contains(r.out, "span 11 symbols"));
+  const Run s = cli({"loopback", "--baud", "1500", "--sps", "6", "--frames", "2", "--quiet"});
+  CHECK(contains(s.out, "sample rate 9 kS/s, symbol rate 1500 Bd"));
+  // 250 kBd is the default setting, and gives the same run.
+  const Run def = cli({"loopback", "--frames", "5", "--quiet"});
+  CHECK(cli({"loopback", "--baud", "250000", "--frames", "5", "--quiet"}).out == def.out);
+}
+
+TEST(baud_and_rate_together_are_refused_and_so_is_a_rate_above_the_limit) {
+  const Run both = cli({"loopback", "--baud", "2000", "--rate", "8000"});
+  CHECK(both.code == 2);
+  CHECK(contains(both.err, "either '--rate' (sample rate) or '--baud' (symbol rate), not both"));
+  CHECK(cli({"loopback", "--profile", "qo100-nb", "--baud", "2000", "--rate", "8000"}).code == 2);
+  const Run big = cli({"loopback", "--baud", "5e7", "--sps", "64"});
+  CHECK(big.code == 2);
+  CHECK(contains(big.err, "above 1e9"));
+  CHECK(cli({"loopback", "--profile", "wideband"}).code == 2);
+  CHECK(contains(cli({"loopback", "--profile", "wideband"}).err, "option '--profile': 'wideband' is not one of: default, qo100-nb"));
+}
+
+TEST(a_carrier_offset_beyond_the_preamble_range_is_noted) {
+  // 3% of the symbol rate: 7.5 kHz at 250 kBd, 60 Hz at 2000 Bd.
+  const Run in_range = cli({"loopback", "--frames", "2", "--quiet", "--cfo-hz", "7000"});
+  CHECK(!contains(in_range.out, "note:"));
+  const Run beyond = cli({"loopback", "--frames", "2", "--quiet", "--cfo-hz", "-8000"});
+  CHECK(contains(beyond.out, "note: a carrier offset of -8000 Hz is beyond the reliable acquisition range of about +-7500 Hz"));
+
+  const Run nb_ok = cli({"loopback", "--profile", "qo100-nb", "--frames", "2", "--quiet", "--cfo-hz", "50"});
+  CHECK(!contains(nb_ok.out, "note:"));
+  CHECK(number_after(nb_ok.out, "delivered ") == 2);
+  const Run nb = cli({"loopback", "--profile", "qo100-nb", "--frames", "2", "--quiet", "--cfo-hz", "300"});
+  CHECK(contains(nb.out, "beyond the reliable acquisition range of about +-60 Hz"));
+  CHECK(number_after(nb.out, "delivered ") == 0);            // and it is true: nothing is found until 10A.4
+
+  const Run sweep = cli({"loopback", "--sweep", "10:10:1", "--max-bits", "5000", "--cfo-hz", "9000"});
+  CHECK(contains(sweep.out, "note: a carrier offset of 9000 Hz"));
+}
+
+TEST(the_profile_signal_the_command_writes_fits_the_2700_hz_channel) {
+  // End to end (Requirement 12.2): the samples the profile actually transmits, read back from
+  // the file, measured at the profile's rates.
+  TempPath tx(".cf32");
+  const Run r = cli({"loopback", "--profile", "qo100-nb", "--frames", "40", "--quiet", "--tx-out", tx.str()});
+  CHECK(r.code == 0);
+  const auto samples = mpsk::io::Cf32Reader(tx.str()).read(10000000);
+  REQUIRE(samples.size() > 40000);
+  const auto bw = mpsk::dsp::measure_occupied_bandwidth(samples, 8000.0, 2000.0);
+  CHECK(bw.width_26_db_hz <= 2600.0);
+  CHECK(bw.width_40_db_hz <= 2700.0);                        // span 21 keeps even the far skirts inside
+  CHECK(bw.power_99_hz < 2300.0);
+}
+
+TEST(the_profile_link_works_in_noise) {
+  const Run r = cli({"loopback", "--profile", "qo100-nb", "--frames", "30", "--quiet", "--ebn0", "9", "--cfo-hz", "40",
+                     "--clock-ppm", "10"});
+  CHECK(r.code == 0);
+  CHECK(number_after(r.out, "delivered ") == 30);
+  // The ideal BER at 9 dB is 3.4e-5, about one error in these 30 720 bits; the receiver's loss
+  // of 0.1 to 0.2 dB at this SNR makes it one to five. A bound of 30 (BER 1e-3) says the link
+  // works without making a test of a Poisson count.
+  CHECK(number_after(r.out, "bit errors ") <= 30);
 }
 
 MPSK_TEST_MAIN()

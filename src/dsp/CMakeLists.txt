@@ -21,6 +21,7 @@ add_library(mpsk_dsp STATIC
   receiver.cpp
   rx_frontend.cpp
   scrambler.cpp
+  spectrum.cpp
   timing_loop.cpp
   version.cpp)
 

@@ -89,9 +89,11 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
 
 - [ ] 10A. Narrowband profile for the QO-100 narrowband transponder (2000 Bd, roll-off 0.25)
   - Added after task 10. Requirement 12; design section "Narrowband profile". Do before task 11, because the echo timing and the simulated radio depend on the rates.
-  - [ ] 10A.1 Add `--baud` (symbol rate; the sample rate becomes baud times samples per symbol) and a `--profile qo100-nb` preset to the CLI: QPSK, 2000 Bd, roll-off 0.25, 4 samples per symbol, span 21 if 10A.2 confirms it. An explicit option overrides the preset. Update the loopback header line and the tests.
+  - [x] 10A.1 Add `--baud` (symbol rate; the sample rate becomes baud times samples per symbol) and a `--profile qo100-nb` preset to the CLI: QPSK, 2000 Bd, roll-off 0.25, 4 samples per symbol, span 21 if 10A.2 confirms it. An explicit option overrides the preset. Update the loopback header line and the tests.
+    - Done: `--profile default|qo100-nb` and `--baud` (not together with `--rate`); span 21 adopted after 10A.2; the loopback header now gives the sample rate and the symbol rate in baud, and a note when the carrier offset is beyond the preamble's range.
     - _Requirements: 12.1_
-  - [ ] 10A.2 Measure the occupied bandwidth of the modulator output (a function in the DSP library, not just a test helper) and add a test: the −26 dB width at the profile is at most 2.7 kHz and the 99% width is reported; run it for spans 11 and 21 and record both. Check the receiver and loops with span 21 (loopback at the profile, clean and with noise) before adopting it.
+  - [x] 10A.2 Measure the occupied bandwidth of the modulator output (a function in the DSP library, not just a test helper) and add a test: the −26 dB width at the profile is at most 2.7 kHz and the 99% width is reported; run it for spans 11 and 21 and record both. Check the receiver and loops with span 21 (loopback at the profile, clean and with noise) before adopting it.
+    - Done: `dsp/spectrum` (FFT, Welch PSD, `measure_occupied_bandwidth`); at the profile the −26 dB width is 2473 Hz and the 99% width 2203 Hz; span 21 gives a −40 dB width of 2531 Hz against 3082 Hz at span 11, with identical loopback results. The 2.7 kHz bound is tested on the modulator output and, end to end, on the samples `mpsk loopback --profile qo100-nb --tx-out` writes.
     - _Requirements: 12.2_
   - [ ] 10A.3 Make the DC blocker's cutoff a frequency in hertz and its priming window a time in milliseconds, both derived from the sample rate. Keep the 1 MS/s behaviour unchanged (same test results). Re-measure the burst-train effect found in task 10 at 8 kS/s.
     - _Requirements: 12.4_

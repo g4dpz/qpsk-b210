@@ -117,16 +117,18 @@ Added after task 10, when the first on-air tests were fixed as the QO-100 narrow
 
 ### Occupied bandwidth
 
-Measured on the modulator output (random 128-byte frames back to back, Hann-windowed periodograms; baseband only). Widths in hertz at 2000 Bd:
+Measured by `measure_occupied_bandwidth()` (`dsp/spectrum`: Welch, Hann windows, 4096-point FFT, about 275 segments of 200 random 128-byte frames, a resolution of 1.95 Hz) on the modulator output at 8 kS/s. Widths in hertz at 2000 Bd:
 
 | Roll-off / span | 99% of power | 99.9% of power | −26 dB | −40 dB |
 |---|---|---|---|---|
-| 0.25 / 11 | 2200 | 2380 | 2502 | 3090 |
-| 0.25 / 21 | 2220 | 2360 | 2473 | 2529 |
-| 0.35 / 11 | 2320 | 2540 | 2689 | 2998 |
-| 0.35 / 21 | 2340 | 2540 | 2654 | 2725 |
+| **0.25 / 21 (the profile)** | 2203 | 2359 | **2473** | 2531 |
+| 0.25 / 11 | 2199 | 2375 | 2504 | 3082 |
+| 0.35 / 21 | 2328 | 2531 | 2656 | 2723 |
+| 0.35 / 11 | 2320 | 2539 | 2691 | 3000 |
 
-Roll-off 0.25 leaves 200 Hz of margin at −26 dB; 0.35 would sit on the limit. The −40 dB skirts at span 11 are the truncation of the pulse, not the roll-off: a span of 21 pulls them in from 3.09 kHz to 2.53 kHz, and costs nothing that matters at 8 kS/s (84 taps instead of 44). **Proposed: span 21 in this profile**, pending a check that acquisition and the loops are unaffected. The real transmitted spectrum also has the radio's filters, phase noise and PA, which this does not include; it must be checked on a spectrum analyser.
+Roll-off 0.25 leaves 227 Hz of margin at −26 dB; 0.35 would sit within 50 Hz of the limit. The −40 dB skirts at span 11 are the truncation of the pulse, not the roll-off: a span of 21 pulls them in from 3082 Hz to 2531 Hz, and costs nothing that matters at 8 kS/s (84 taps instead of 44). **Span 21 is adopted for the profile.** Checked through the loopback at 2000 Bd: both spans decode the same, and the sweep from 0 to 10 dB gives the same losses against theory within the statistics (span 21 at 4, 6 and 8 dB: +0.14, +0.12 and +0.06 dB; span 11: +0.15, +0.23, +0.03 dB).
+
+How the measurement is defined, so the figures are not read too generously: the widths are symmetric about 0 Hz; the skirt widths (−26, −40 dB) are twice the largest frequency at which the PSD, smoothed over 9 bins, is above the in-band level (the mean within 0.3 of the symbol rate of 0 Hz) minus the stated dB; they read up to 4 bins (8 Hz) wide on each side because of the smoothing, which is the safe direction for a limit; and the same smoothing makes one narrow spur look about 8 dB weaker, so this measures the skirts of the modulation and not discrete spurs. The real transmitted spectrum also has the radio's filters, phase noise, LO leakage and PA, which this does not include; it must be checked on a spectrum analyser. The limit's definition (here −26 dB, with the 99% width also reported) is still to be confirmed with the user.
 
 ### What must change in the chain
 
@@ -452,13 +454,15 @@ One executable, `mpsk`, subcommands below. Options are `--name value` (or `--nam
 
 **Options as implemented for `loopback`** (the others reuse the common groups):
 
-- Common: `--mod qpsk|8psk`, `--sps`, `--rolloff`, `--span`, `--payload-bytes`, `--seed` (the PRBS seed), `--rate` (the sample rate, default 1 MS/s; the symbol rate is rate / sps).
+- Common: `--profile default|qo100-nb`, `--mod qpsk|8psk`, `--sps`, `--rolloff`, `--span`, `--payload-bytes`, `--seed` (the PRBS seed), `--rate` (the sample rate) and `--baud` (the symbol rate; sample rate = baud x sps). Give one of the two, not both. Defaults: 1 MS/s, 250 kBd, roll-off 0.35, span 11. The profile `qo100-nb` is 2000 Bd, roll-off 0.25, span 21, and an option given explicitly overrides the profile's value (so `--profile qo100-nb --rolloff 0.35` is the profile with roll-off 0.35; `--sps 8` keeps 2000 Bd and doubles the sample rate; an explicit `--rate` beats the profile's baud).
 - Receiver: `--detect-threshold` (the stage-1 threshold, default 0.25). `--los-timeout` belongs to the live receiver and arrives with it.
 - Simulation: `--ebn0`, `--cfo-hz`, `--phase-deg`, `--timing-frac` (added to the delay), `--delay-samples`, `--clock-ppm`, `--amp-db`, `--drift` (carrier frequency drift in Hz/s), and two added during implementation: `--phase-walk` (random-walk phase, rad/√s) and `--noise-seed`.
 - Run control: `--frames`, `--sweep START:STOP:STEP` (Eb/N0 in dB, replaces `--ebn0`), `--target-errors`, `--max-bits`, `--quiet`, `--tx-out FILE`, `--rx-out FILE` (cf32; the files are opened before the run so a bad path fails at once).
 - Radio and echo options from the first draft (`--args`, `--freq`, `--tx-gain`, `--turnaround-ms`, ...) are added with the subcommands that use them.
 
 **Checks the parser's ranges cannot make** are made when the options are read, and reported against the options: `--mod 8psk` is refused in stage 1 with a message that says what the build enables (it asks `Constellation::supported_orders()`, so adding 8 in stage 2 turns it on with no change here); `--sps` times `--span` must be even; `--ebn0` and `--sweep` are exclusive; `--tx-out` and `--rx-out` are for a single run; `--target-errors` and `--max-bits` apply only to a sweep. A sweep is limited to 200 points and 5000 frames per record.
+
+**Acquisition note.** If the carrier offset asked for is beyond 3% of the symbol rate (7.5 kHz at 250 kBd, 60 Hz at 2000 Bd), which is as far as the preamble can be relied on to find a frame, the loopback prints a note saying so before it runs; at the profile a 300 Hz offset finds nothing until task 10A.4.
 
 **Roll-off lower limit.** `--rolloff` is accepted from 0.1. Measured through the loopback at Eb/N0 = 12 dB: 0.1 and above decode with no errors; 0.05 gives 820 bit errors in 20 frames, and 0 fails outright (49% EVM). I have not diagnosed why. The Gardner detector's gain falls with the roll-off (0.609 at 0.2), and the loop gains are divided by it, so a vanishing gain is the first suspect, but that is a guess.
 

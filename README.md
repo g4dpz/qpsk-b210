@@ -8,8 +8,11 @@ round-trip delay.
 The first on-air target is the QO-100 narrowband transponder, which limits a
 signal to 2.7 kHz: 2000 Bd QPSK with roll-off 0.25 (a nominal 2.5 kHz), between
 two stations running the half-duplex echo test. The defaults below (250 kBd,
-for bench work) are not that profile; the narrowband profile is planned as task
-10A and is not implemented yet. See "Narrowband profile" in the design.
+for bench work) are not that profile. `--profile qo100-nb` selects it, and the modulator
+output has been measured to fit (−26 dB width 2473 Hz); the rest of the narrowband
+work, task 10A.3 onward (wide frequency acquisition, rate conversion), is still to do,
+and until then a carrier offset beyond about 60 Hz is not found. See "Narrowband
+profile" in the design.
 
 This branch is separate from `main`, which holds the earlier QPSK codec. Its
 files were removed from this branch only, and can be brought back one at a time
@@ -19,7 +22,7 @@ with `git checkout origin/main -- <path>`.
 
 This is not usable as a radio yet. Nothing here has been run on hardware.
 
-Done (tasks 1 to 10 of 19), all tested offline:
+Done (tasks 1 to 10 and 10A.1 to 10A.2 of 19), all tested offline:
 
 - build system, test harness, and UHD discovery that prefers the Homebrew install
 - Gray-coded M-PSK constellation, PRBS, CRCs, scrambler
@@ -107,6 +110,8 @@ build/src/app/mpsk loopback --frames 20                      # clean channel, on
 build/src/app/mpsk loopback --ebn0 8 --cfo-hz 1500 --delay-samples 700.5 --amp-db -30
 build/src/app/mpsk loopback --sweep 0:10:2 --max-bits 2e6    # BER against Eb/N0, with theory
 build/src/app/mpsk loopback --frames 3 --tx-out tx.cf32 --rx-out rx.cf32
+build/src/app/mpsk loopback --profile qo100-nb --frames 20     # 2000 Bd, roll-off 0.25: fits the 2.7 kHz QO-100 channel
+build/src/app/mpsk loopback --baud 1800 --rolloff 0.35       # a symbol rate instead of a sample rate
 build/src/app/mpsk loopback --help                           # every option, with defaults and ranges
 ```
 
