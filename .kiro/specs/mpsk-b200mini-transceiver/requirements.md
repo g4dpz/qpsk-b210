@@ -195,6 +195,23 @@ The DSP chain is kept independent of UHD so it can be tested offline. No USRP is
 5. THE README SHALL include a short block-by-block description of the DSP chain.
 6. THE README SHALL include troubleshooting notes covering underflows and overflows, B200-mini gain and sample-rate limits, USB 3 throughput, and FPGA image download with `uhd_images_downloader`.
 
+### Requirement 12: Narrowband satellite profile (QO-100 narrowband transponder)
+
+**User Story:** As an amateur radio operator, I want a profile that fits the 2.7 kHz channel of the QO-100 narrowband transponder, so that I can run the echo test between two stations over the satellite without exceeding the bandwidth I am permitted.
+
+#### Acceptance Criteria
+
+1. THE System SHALL provide a narrowband profile with QPSK at a symbol rate of 2000 baud and an RRC roll-off of 0.25, giving a nominal bandwidth of `Rs (1 + β)` = 2.5 kHz, and the symbol rate SHALL be settable directly (`--baud`) as well as through the sample rate and samples per symbol.
+2. THE transmitted signal in the profile SHALL NOT exceed a bandwidth of 2.7 kHz. A test SHALL measure the bandwidth of the modulator output, SHALL fail if the width between the points 26 dB below the in-band level exceeds 2.7 kHz, and SHALL report the 99%-power width too. (The 26 dB definition is an assumption to be confirmed with the user. It does not cover the radio's own filters, phase noise or power amplifier.)
+3. THE radio layer SHALL run the radio at a sample rate the hardware supports and SHALL convert to and from the DSP rate with filtering that keeps images and aliases out of the channel, so that the DSP may run at a few samples per symbol while the radio runs near its minimum rate.
+4. THE DC blocker's cutoff SHALL be defined in hertz and SHALL be much smaller than the symbol rate whatever the sample rate, and THE radio layer SHALL tune with a local-oscillator offset so that LO leakage falls outside the occupied band.
+5. THE Receiver SHALL acquire a carrier frequency offset of at least a configurable search range (default to be confirmed against the user's downconverter, proposed as plus or minus 1 kHz) and not only the preamble-based range of about 1/32 of the symbol rate, which is 60 Hz at 2000 baud.
+6. THE radio interface SHALL allow different transmit and receive centre frequencies, antennas and gains, because the uplink (2.4 GHz band) and the downlink (10.489 GHz band, through a downconverter to an intermediate frequency) are different frequencies.
+7. THE echo test between two stations over the satellite SHALL remain half duplex (Requirement 8.2), and its turnaround, timeout and interval SHALL account for a path delay of about 0.25 s per hop (station, satellite, station), a round trip of about 0.5 s, and a frame duration of about 0.33 s for 128 bytes. The profile defaults SHALL be documented and SHALL be configurable.
+8. THE echo test SHALL NOT mistake a station's own transmission, heard again through the satellite, for the partner's frame. The initiator SHALL accept only echo frames and the responder only data frames, and each SHALL count and report the frames it ignored.
+9. THE Receiver SHALL offer an option to undo spectral inversion (conjugation of the received samples), because an inverting stage in the path turns a QPSK constellation into its mirror image and the real-valued preamble cannot reveal it.
+10. THE README SHALL tell the user to stay within the 2.7 kHz channel, to check the current AMSAT-DL band plan, to start at low uplink power because the transponder is shared and power-limited, and that licensing and compliance are the user's responsibility.
+
 ### Out of Scope
 
 - Running the hardware tests here, conducted or over the air. No USRP is attached to this machine, so hardware behaviour stays untested until the user runs it. The offline loopback covers the DSP only.

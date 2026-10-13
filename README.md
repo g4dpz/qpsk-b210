@@ -5,6 +5,12 @@ It is built in two stages: QPSK first, then 8-PSK added on top. A half-duplex
 echo test between two radios measures both directions of the link and the
 round-trip delay.
 
+The first on-air target is the QO-100 narrowband transponder, which limits a
+signal to 2.7 kHz: 2000 Bd QPSK with roll-off 0.25 (a nominal 2.5 kHz), between
+two stations running the half-duplex echo test. The defaults below (250 kBd,
+for bench work) are not that profile; the narrowband profile is planned as task
+10A and is not implemented yet. See "Narrowband profile" in the design.
+
 This branch is separate from `main`, which holds the earlier QPSK codec. Its
 files were removed from this branch only, and can be brought back one at a time
 with `git checkout origin/main -- <path>`.

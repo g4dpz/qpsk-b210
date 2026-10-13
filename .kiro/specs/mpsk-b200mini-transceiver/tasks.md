@@ -87,11 +87,29 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
   - If anything fails, fix it before moving on. Ask the user if a question comes up.
   - Done: clean builds from scratch with and without UHD, zero warnings; 27 and 26 tests pass; the Release binary links `/opt/homebrew/lib/libuhd` and the software-only binary links no UHD or Boost. Results are in the README. One finding, documented in the design and not fixed: the DC blocker removes the genuine DC of a dense train of short bursts (EVM up to about 4%, no bit errors).
 
+- [ ] 10A. Narrowband profile for the QO-100 narrowband transponder (2000 Bd, roll-off 0.25)
+  - Added after task 10. Requirement 12; design section "Narrowband profile". Do before task 11, because the echo timing and the simulated radio depend on the rates.
+  - [ ] 10A.1 Add `--baud` (symbol rate; the sample rate becomes baud times samples per symbol) and a `--profile qo100-nb` preset to the CLI: QPSK, 2000 Bd, roll-off 0.25, 4 samples per symbol, span 21 if 10A.2 confirms it. An explicit option overrides the preset. Update the loopback header line and the tests.
+    - _Requirements: 12.1_
+  - [ ] 10A.2 Measure the occupied bandwidth of the modulator output (a function in the DSP library, not just a test helper) and add a test: the −26 dB width at the profile is at most 2.7 kHz and the 99% width is reported; run it for spans 11 and 21 and record both. Check the receiver and loops with span 21 (loopback at the profile, clean and with noise) before adopting it.
+    - _Requirements: 12.2_
+  - [ ] 10A.3 Make the DC blocker's cutoff a frequency in hertz and its priming window a time in milliseconds, both derived from the sample rate. Keep the 1 MS/s behaviour unchanged (same test results). Re-measure the burst-train effect found in task 10 at 8 kS/s.
+    - _Requirements: 12.4_
+  - [ ] 10A.4 Wide-range frequency acquisition without changing the frame format (a tone ahead of the frame was rejected by the user). Proposed: run the stage-1 detector over frequency hypotheses about 100 Hz apart across a configurable search range (default ±1 kHz), take the best, and let the existing estimators refine it. Confirm the method and the range with the user first. Tests: acquire offsets across the whole search range at the profile, with noise; the false-alarm rate on noise stays at the target with all hypotheses searched; the ordinary path (offset inside ±60 Hz) gives the same results as before; measure the cost.
+    - _Requirements: 12.5_
+  - [ ] 10A.5 A polyphase resampler (rational ratio, linear phase) for the radio layer, with a compensated group delay. Tests: images and aliases below a stated level, flat passband across the 2.5 kHz signal, a round trip DSP rate to radio rate and back that recovers the signal, and the exact delay.
+    - _Requirements: 12.3_
+  - [ ] 10A.6 Repeat the task 8 and task 9 results at the profile: noiseless, carrier offsets scaled to the symbol rate, clock offset and drift, delays and levels, and the AWGN sweep against theory. Record them in the README.
+    - _Requirements: 12.1, 6.3, 6.4, 6.5, 6.6, 6.8_
+  - [ ] 10A.7 A receive option `--invert-iq`, tested by conjugating a clean frame and checking that it decodes only with the option.
+    - _Requirements: 12.9_
+
 - [ ] 11. Radio interface, simulated radio, and echo logic
   - [ ] 11.1 Define `IRadio` (`sample_rate`, `now`, `receive`, `send_burst`) and the `RxBlock` and `SendResult` types.
     - _Requirements: 5.4, 8.5_
   - [ ] 11.2 Implement `SimRadio`: a per-node device clock, time-stamped receive blocks, timed bursts that return `Late` when scheduled in the past, and a separate channel per direction.
     - _Requirements: 6.7, 8.6_
+  - Satellite profile (Requirement 12): the initiator accepts only echo frames and the responder only data frames, counting the ones they ignore (a station hears its own frames through the satellite about 0.25 s later); the profile defaults are `T_turn` 0.5 s, `--max-range-km` 84 000, timeout about 1.5 s, interval 2 s. `SimRadio` must support a path delay of 0.25 s per hop.
   - [ ] 11.3 Implement the echo initiator: PRBS frames, timed send, receive until echo or timeout, per-exchange report, summary, CSV log.
     - _Requirements: 8.1, 8.3, 8.8, 8.9, 8.10, 8.11, 8.12, 7.15_
   - [ ] 11.4 Implement the echo responder: decode, build an echo (`decoded` mode by default, `reference` mode selectable) with the forward-leg trailer, send at the fixed turnaround, skip and count late echoes, print margin and running counts.
@@ -106,6 +124,7 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
 - [ ] 12. UHD radio layer
   - [ ] 12.1 Implement device selection: `uhd::device::find` first; zero, several, or busy matches print a clear message and exit non-zero; no exception or backtrace reaches the user. Default `--args type=b200`.
     - _Requirements: 5.8, 5.9, 5.10_
+  - Satellite profile: the radio runs at its supported rate through the resampler of 10A.5, tunes with an LO offset (10A.3), and tunes transmit and receive independently (uplink 2.4 GHz band on `TX/RX`, downlink through a downconverter on `RX2`).
   - [ ] 12.2 Implement clock setup in the order from the design: master clock, clock source, wait for `ref_locked` with a timeout, then rate, frequency, gain, bandwidth, antenna. Read back the actual sample rate and exit on a mismatch. A missing `ref_locked` sensor prints a warning and continues. Print the clock source and lock state at startup.
     - _Requirements: 5.1, 5.2, 5.3, 5.12, 5.13, 5.14, 5.15_
   - [ ] 12.3 Implement `UsrpRadio`: `fc32`/`sc16` streamers, timed bursts with start and end of burst, async message handling (`U`, late), continuous receive with time stamps and overflow reporting (`O`), and the Ctrl-C handler.

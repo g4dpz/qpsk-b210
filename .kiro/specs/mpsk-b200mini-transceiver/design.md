@@ -98,6 +98,63 @@ README.md
 
 USB 3 carries 1 MS/s `sc16` (4 MB/s) trivially. The rate is low on purpose: it leaves host CPU headroom for the receive chain on a laptop.
 
+## Narrowband profile (QO-100 narrowband transponder)
+
+Added after task 10, when the first on-air tests were fixed as the QO-100 narrowband transponder, which is limited to a signal 2.7 kHz wide (AMSAT-DL band plan). Requirement 12. The profile changes the symbol rate by a factor of 125, and that exposes several things the 250 kBd design could ignore.
+
+### Parameters
+
+| Parameter | Default profile | Narrowband profile |
+|---|---|---|
+| Modulation | QPSK | QPSK (8-PSK in stage 2 would carry 6 kbit/s) |
+| Symbol rate | 250 kBd | **2000 Bd** |
+| Roll-off | 0.35 | **0.25** |
+| Nominal bandwidth `Rs (1 + β)` | 337.5 kHz | **2.5 kHz** |
+| Raw bit rate | 500 kbit/s | 4 kbit/s |
+| DSP rate (4 samples per symbol) | 1 MS/s | 8 kS/s |
+| Frame, 128-byte payload (664 symbols) | 2.66 ms | **332 ms** (preamble 32 ms) |
+| Carrier acquisition range (about `Rs/32`) | ±7.5 kHz | **±60 Hz** |
+
+### Occupied bandwidth
+
+Measured on the modulator output (random 128-byte frames back to back, Hann-windowed periodograms; baseband only). Widths in hertz at 2000 Bd:
+
+| Roll-off / span | 99% of power | 99.9% of power | −26 dB | −40 dB |
+|---|---|---|---|---|
+| 0.25 / 11 | 2200 | 2380 | 2502 | 3090 |
+| 0.25 / 21 | 2220 | 2360 | 2473 | 2529 |
+| 0.35 / 11 | 2320 | 2540 | 2689 | 2998 |
+| 0.35 / 21 | 2340 | 2540 | 2654 | 2725 |
+
+Roll-off 0.25 leaves 200 Hz of margin at −26 dB; 0.35 would sit on the limit. The −40 dB skirts at span 11 are the truncation of the pulse, not the roll-off: a span of 21 pulls them in from 3.09 kHz to 2.53 kHz, and costs nothing that matters at 8 kS/s (84 taps instead of 44). **Proposed: span 21 in this profile**, pending a check that acquisition and the loops are unaffected. The real transmitted spectrum also has the radio's filters, phase noise and PA, which this does not include; it must be checked on a spectrum analyser.
+
+### What must change in the chain
+
+1. **Frequency acquisition.** The preamble estimator's range is a fixed fraction of the symbol rate: at 2 kBd it is ±60 Hz (the loopback at `--rate 8000` decodes at a 60 Hz offset and finds nothing at 100 Hz). At 2.4 GHz 1 ppm is 2.4 kHz, so even GPSDO-locked radios (a few tens of hertz) plus the satellite's transponder oscillator and the downconverter's LO (no figures available) can exceed it. A tone ahead of the frame was proposed and **rejected by the user**, so the frame format does not change. **Proposed instead:** a search over frequency hypotheses. The stage-1 detector tolerates ±60 Hz, so running it on the input derotated by trial offsets spaced about 100 Hz apart covers the search range (default ±1 kHz, about 20 hypotheses), and the hypothesis with the best statistic gives the coarse offset that the existing estimators then refine. The detector ran 28.7 times faster than real time at 1 MS/s on the Mac in task 6; at 8 kS/s each hypothesis sees 125 times fewer samples per second of signal, so twenty hypotheses should cost about 16% of what the 1 MS/s receiver did (an estimate from that figure, not measured at the profile). Shorter preamble segments (a wider estimator range at the price of variance) remain an alternative, and the two can be combined. To be confirmed with the user at the start of task 10A.4.
+2. **Rate conversion.** The B200-mini cannot run at 8 kS/s. A forum answer put its minimum at about 192 kS/s; I have not confirmed it. The DSP keeps its few samples per symbol, and a polyphase resampler in the radio layer converts to and from a radio rate of about 250 kS/s. An integer ratio is wanted: 8 kS/s to 256 kS/s is ×32 (the master clock must then divide as UHD allows), 10 kS/s (5 samples per symbol) to 250 kS/s is ×25. To be fixed in task 12 against the real device. The resampler's group delay is compensated in the echo timing.
+3. **DC blocker.** Its pole is a fixed `a = 0.9999`, which is a 16 Hz cutoff at 1 MS/s but 0.13 Hz at 8 kS/s with a time constant of 1.25 s, longer than a frame. The 256-sample priming window is also 32 ms at 8 kS/s. Both become time-based: the pole from a cutoff in hertz, much smaller than 2 kHz (a few hertz), and the priming window in milliseconds. The LO leakage spike now falls inside the channel, so the radio tunes with an LO offset. The finding from task 10 (the blocker removes the DC of a dense burst train) needs re-measuring at the new rate, where a frame is 0.33 s and the gaps are seconds.
+4. **Separate uplink and downlink.** TX at 2.4 GHz on the `TX/RX` port, RX through a downconverter at an intermediate frequency on `RX2`. `--tx-freq` and `--rx-freq` replace the single `--freq` (the first draft of the CLI had one), and the antennas and gains are per direction. The echo test's single-antenna-port criterion (8.15) applies to the conducted test only. UHD tunes the two directions independently, which I have not confirmed on this device.
+5. **Spectral inversion.** If any stage in the path inverts the spectrum (a downconverter with the LO above the signal, or an inverting transponder; I do not know whether the QO-100 narrowband transponder is one), the received QPSK is conjugated: the constellation is mirrored and the Gray labels are wrong. The preamble and header are real BPSK, so they decode regardless and give no warning. A receive option `--invert-iq` conjugates the input; the carrier offset's sign also flips.
+
+### Two stations, half duplex, over the satellite
+
+Each station transmits on the uplink and listens on the downlink. The transponder retransmits everything in its passband, so **a station hears its own signal about 0.25 s after it sends it**. The delay is 2 × slant range / c: 36 000 km to 41 700 km gives 0.24 s to 0.28 s per hop, and a hop is station to satellite to station. With a 128-byte frame (0.332 s) the returning copy of a station's own frame arrives while it is still sending the end of it. Because it is half duplex, a station is deaf while transmitting (the first 80 ms of its own returning frame), and it ignores the rest of it by frame type: the initiator sends data frames and accepts only echo frames, the responder the reverse. That uses the type field the header already has, and nothing new. A frame ignored this way is counted and reported (a ready measurement of the up and down path as a bonus, if frames are shortened below the hop delay; not in scope).
+
+Timeline, initiator A and responder B, with one-way hop 0.25 s, frame 0.332 s, `T_turn` 0.5 s:
+
+| Time (A's clock) | Event |
+|---|---|
+| 0.00 – 0.33 s | A transmits data frame n |
+| 0.25 – 0.58 s | A hears its own frame n through the satellite, ignores it (type data) |
+| 0.25 – 0.58 s | B receives frame n; at 0.58 s the frame is complete and decoded |
+| 0.75 s | B starts the echo (0.5 s after the frame's start at B) |
+| 1.00 – 1.33 s | A receives the echo; B hears its own echo back and ignores it |
+| 2.00 s | A sends frame n+1 (the next interval) |
+
+Round trip as A sees it: about 1.0 s, which is 0.5 s of path plus `T_turn`. The sample period at 8 kS/s is 125 µs, 37.5 km of path per sample, which is fine for a delay measured in tens of milliseconds, and the "one-way delay" the initiator reports will read about 0.25 s.
+
+Profile defaults for the echo test, to be confirmed on air: `T_turn` 0.5 s (it must exceed the frame, the host latency and the decode); `--max-range-km` 84 000 (the longest station to satellite to station path); timeout `T_turn + T_frame + 2 × 0.28 s + 0.1 s` which is about 1.5 s; interval 2 s. At 4 kbit/s raw, a 128-byte payload every 2 s is a low duty cycle, so the transponder sees one short burst in six.
+
 ## Components
 
 ### Constellation and Gray coding (`constellation`, `gray`)
@@ -490,6 +547,7 @@ Expected stage 2 risks, which verification should check before anything else is 
 | 9 Over the air | Detection and amplitude handling; echo scheduling; README staged procedure and regulatory note |
 | 10 Build | Build; architecture |
 | 11 Documentation | README, written during implementation |
+| 12 Narrowband satellite profile | Narrowband profile section; tasks 10A, and the satellite notes in tasks 11 to 14 |
 
 ## Unverified assumptions and open decisions
 
@@ -505,6 +563,14 @@ Expected stage 2 risks, which verification should check before anything else is 
 1. A missing `ref_locked` sensor produces a warning, not an error.
 2. The `decoded` echo mode is the default (`reference` stays available).
 3. A hand-written CLI parser, not Boost.Program_options. The test harness is also hand-written.
+
+**Open for the narrowband profile (Requirement 12):**
+1. The bandwidth definition: the 2.7 kHz limit is assumed to mean the −26 dB width. If it means 99% of the power, the requirement is looser (2.2 kHz at the profile).
+2. Span 21 against 11 (see above): proposed, not yet checked against the receiver.
+3. The frequency error budget of the user's chain (GPSDO-locked radios, the downconverter's reference, the transponder) and so the size of the search range (default ±1 kHz). The user rejected a tone ahead of the frame; the frequency-hypothesis search is proposed, not decided.
+4. Whether any stage inverts the spectrum.
+5. The radio's minimum sample rate and the master clock that gives an integer ratio.
+6. Payload size for the profile: 128 bytes (0.33 s) is the default; 64 bytes (0.20 s) loses less to a bad frame.
 
 **Decisions still open to change:**
 1. Burst-mode, preamble-driven receiver instead of a continuous stream.
