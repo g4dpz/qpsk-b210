@@ -82,9 +82,10 @@ Each task builds on the ones before it. Build and run the tests at the end of ev
   - Done as: `loopback` works, with single runs, `--sweep`, and `--tx-out`/`--rx-out`. `echo-sim` and the four hardware commands are declared and answer `--help`; they exit 1 with a message until their tasks (11, 12, 13) land. `mpsk version` replaces the bare `mpsk` that CI used to run.
   - _Requirements: 1.1, 1.2, 1.8, 10.4_
 
-- [ ] 10. Checkpoint: DSP and loopback
+- [x] 10. Checkpoint: DSP and loopback
   - Build from scratch, with no warnings. Run `ctest`, then run the `loopback` subcommand for the noiseless, impairment, delay, and AWGN cases with QPSK, and record the measured numbers for the README.
   - If anything fails, fix it before moving on. Ask the user if a question comes up.
+  - Done: clean builds from scratch with and without UHD, zero warnings; 27 and 26 tests pass; the Release binary links `/opt/homebrew/lib/libuhd` and the software-only binary links no UHD or Boost. Results are in the README. One finding, documented in the design and not fixed: the DC blocker removes the genuine DC of a dense train of short bursts (EVM up to about 4%, no bit errors).
 
 - [ ] 11. Radio interface, simulated radio, and echo logic
   - [ ] 11.1 Define `IRadio` (`sample_rate`, `now`, `receive`, `send_burst`) and the `RxBlock` and `SendResult` types.
